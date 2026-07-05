@@ -44,7 +44,7 @@ async function bootstrap() {
   app.useStaticAssets(contentUploadDir, { prefix: '/uploads/event-content' });
 
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: process.env.CORS_ORIGIN || 'http://localhost:3001',
     credentials: true,
   });
 
@@ -58,7 +58,7 @@ async function bootstrap() {
 
   await ensureCourseOutlineColumn(app);
 
-  const port = process.env.PORT || 3001;
+  const port = process.env.PORT || 8001;
   await app.listen(port);
   console.log(`GZURA API running on http://localhost:${port}`);
 }
