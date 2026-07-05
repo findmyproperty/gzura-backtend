@@ -43,8 +43,13 @@ async function bootstrap() {
   app.useStaticAssets(uploadDir, { prefix: '/uploads/events' });
   app.useStaticAssets(contentUploadDir, { prefix: '/uploads/event-content' });
 
+  const corsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3001')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3001',
+    origin: corsOrigins,
     credentials: true,
   });
 
