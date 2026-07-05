@@ -1,0 +1,3 @@
+ALTER TABLE `users`
+  ADD COLUMN `status` ENUM('ACTIVE', 'BLOCKED') NOT NULL DEFAULT 'ACTIVE' AFTER `role`,
+  ADD COLUMN `last_login_at` DATETIME NULL AFTER `status`;
