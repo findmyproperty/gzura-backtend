@@ -28,6 +28,11 @@ export class UsersController {
     return this.usersService.findAll();
   }
 
+  @Get('hosts')
+  findHosts() {
+    return this.usersService.findHosts();
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.usersService.findOne(id);

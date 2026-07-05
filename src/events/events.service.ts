@@ -13,7 +13,9 @@ import {
   isOnlineEventType,
 } from '../common/utils/meeting.util';
 import { Event } from '../entities/event.entity';
+import { User } from '../entities/user.entity';
 import { GoogleCalendarService } from '../integrations/google-calendar.service';
+import { UsersService } from '../users/users.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 
@@ -23,7 +25,39 @@ export class EventsService {
     @InjectRepository(Event)
     private eventRepo: Repository<Event>,
     private googleCalendar: GoogleCalendarService,
+    private usersService: UsersService,
   ) {}
+
+  private hostDisplayName(host: Pick<User, 'firstName' | 'lastName'>) {
+    return `${host.firstName} ${host.lastName}`.trim();
+  }
+
+  private hostBio(host: Pick<User, 'profession' | 'city'>) {
+    return [host.profession, host.city].filter(Boolean).join(' • ') || null;
+  }
+
+  private async applyHostDetails(
+    event: Event,
+    hostId?: string | null,
+    speakerName?: string,
+    speakerBio?: string,
+  ) {
+    if (hostId === null) {
+      event.hostId = null;
+      event.host = null;
+      return;
+    }
+
+    if (!hostId) {
+      return;
+    }
+
+    const host = await this.usersService.findHostById(hostId);
+    event.hostId = host.id;
+    event.host = host;
+    event.speakerName = speakerName?.trim() || this.hostDisplayName(host);
+    event.speakerBio = speakerBio?.trim() || this.hostBio(host);
+  }
 
   private mapEventWithCount(event: Event, count: number) {
     const meetLink = isGoogleMeetLink(event.meetingRoomId)
@@ -131,6 +165,7 @@ export class EventsService {
   async findAll(publishedOnly = true) {
     const qb = this.eventRepo
       .createQueryBuilder('event')
+      .leftJoinAndSelect('event.host', 'host')
       .loadRelationCountAndMap('event.registrationCount', 'event.registrations')
       .orderBy('event.dateStart', 'ASC');
 
@@ -150,6 +185,7 @@ export class EventsService {
   private async findOneQuery(idOrSlug: string, publishedOnly: boolean) {
     const qb = this.eventRepo
       .createQueryBuilder('event')
+      .leftJoinAndSelect('event.host', 'host')
       .loadRelationCountAndMap('event.registrationCount', 'event.registrations')
       .where('event.id = :idOrSlug OR event.slug = :idOrSlug', { idOrSlug });
 
@@ -201,6 +237,7 @@ export class EventsService {
       venue: isOnline ? null : (dto.venue ?? null),
       speakerName: dto.speakerName ?? null,
       speakerBio: dto.speakerBio ?? null,
+      hostId: dto.hostId ?? null,
       courseOutline: dto.courseOutline?.trim() || null,
       imageUrl: images.imageUrl,
       galleryImages: images.galleryImages,
@@ -210,6 +247,13 @@ export class EventsService {
       featured: dto.featured ?? false,
       status: dto.status ?? EventStatus.DRAFT,
     });
+
+    await this.applyHostDetails(
+      event,
+      dto.hostId,
+      dto.speakerName,
+      dto.speakerBio,
+    );
 
     if (isOnline) {
       await this.applyOnlineMeeting(event, dto.meetingLink);
@@ -230,7 +274,15 @@ export class EventsService {
     const becameOffline =
       isOnlineEventType(previousType) && !isOnlineEventType(nextType);
     const isOrWillBeOnline = isOnlineEventType(nextType);
-    const { galleryImages, imageUrl, description, ...rest } = dto;
+    const {
+      galleryImages,
+      imageUrl,
+      description,
+      hostId,
+      speakerName,
+      speakerBio,
+      ...rest
+    } = dto;
 
     Object.assign(event, {
       ...rest,
@@ -259,6 +311,17 @@ export class EventsService {
           ? dto.courseOutline.trim() || null
           : event.courseOutline,
     });
+
+    if (hostId !== undefined) {
+      await this.applyHostDetails(event, hostId, speakerName, speakerBio);
+    } else {
+      if (speakerName !== undefined) {
+        event.speakerName = speakerName.trim() || null;
+      }
+      if (speakerBio !== undefined) {
+        event.speakerBio = speakerBio.trim() || null;
+      }
+    }
 
     if (galleryImages !== undefined || imageUrl !== undefined) {
       const images = this.normalizeGalleryImages(

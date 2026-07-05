@@ -2,6 +2,8 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  JoinColumn,
+  ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
@@ -9,6 +11,7 @@ import {
 import { EventStatus } from '../common/enums/event-status.enum';
 import { EventRegistration } from './event-registration.entity';
 import { EventContentItem } from './event-content-item.entity';
+import { User } from './user.entity';
 
 @Entity('events')
 export class Event {
@@ -62,6 +65,13 @@ export class Event {
 
   @Column({ name: 'speaker_bio', type: 'text', nullable: true })
   speakerBio!: string | null;
+
+  @Column({ name: 'host_id', type: 'varchar', nullable: true })
+  hostId!: string | null;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'host_id' })
+  host!: User | null;
 
   @Column({ name: 'course_outline', type: 'text', nullable: true })
   courseOutline!: string | null;

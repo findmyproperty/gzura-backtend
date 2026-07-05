@@ -6,6 +6,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Min,
 } from 'class-validator';
 import { EventFormat } from '../../common/enums/event-format.enum';
@@ -58,6 +59,10 @@ export class CreateEventDto {
   @IsOptional()
   @IsString()
   speakerBio?: string;
+
+  @IsOptional()
+  @IsUUID()
+  hostId?: string;
 
   @IsOptional()
   @IsString()

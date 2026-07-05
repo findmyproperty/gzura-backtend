@@ -6,6 +6,29 @@ import { join } from 'path';
 import { DataSource } from 'typeorm';
 import { AppModule } from './app.module';
 
+async function ensureHostIdColumn(app: NestExpressApplication) {
+  const dataSource = app.get(DataSource);
+  const rows = await dataSource.query(
+    `
+      SELECT COUNT(*) AS count
+      FROM information_schema.columns
+      WHERE table_schema = DATABASE()
+        AND table_name = 'events'
+        AND column_name = 'host_id'
+    `,
+  );
+
+  const count = Number(rows?.[0]?.count ?? 0);
+  if (count > 0) return;
+
+  await dataSource.query(
+    'ALTER TABLE events ADD COLUMN host_id VARCHAR(36) NULL AFTER speaker_bio',
+  );
+  await dataSource.query(
+    'ALTER TABLE events ADD CONSTRAINT events_host_id_fkey FOREIGN KEY (host_id) REFERENCES users(id) ON DELETE SET NULL',
+  );
+}
+
 async function ensureCourseOutlineColumn(app: NestExpressApplication) {
   const dataSource = app.get(DataSource);
   const rows = await dataSource.query(
@@ -62,6 +85,7 @@ async function bootstrap() {
   );
 
   await ensureCourseOutlineColumn(app);
+  await ensureHostIdColumn(app);
 
   const port = 8001;
   await app.listen(port);

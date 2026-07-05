@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import { UserStatus } from '../common/enums/user-status.enum';
 import { User } from '../entities/user.entity';
@@ -23,6 +23,58 @@ export class UsersService {
   private sanitize(user: User) {
     const { passwordHash: _, ...safe } = user;
     return safe;
+  }
+
+  findHosts() {
+    return this.userRepo.find({
+      where: {
+        role: In([Role.HOST, Role.ADMIN]),
+        status: UserStatus.ACTIVE,
+      },
+      order: { firstName: 'ASC', lastName: 'ASC' },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        status: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        city: true,
+        profession: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+  async findHostById(id: string) {
+    const user = await this.userRepo.findOne({
+      where: {
+        id,
+        role: In([Role.HOST, Role.ADMIN]),
+        status: UserStatus.ACTIVE,
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        status: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        city: true,
+        profession: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Host not found');
+    }
+
+    return user;
   }
 
   findAll() {
