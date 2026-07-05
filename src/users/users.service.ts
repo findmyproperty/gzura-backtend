@@ -6,9 +6,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { In, Repository } from 'typeorm';
+import { randomBytes } from 'crypto';
+import { Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import { UserStatus } from '../common/enums/user-status.enum';
+import { CommunityRegistration } from '../entities/community-registration.entity';
 import { User } from '../entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -25,10 +27,59 @@ export class UsersService {
     return safe;
   }
 
+  private splitFullName(fullName: string) {
+    const trimmed = fullName.trim();
+    const spaceIndex = trimmed.indexOf(' ');
+
+    if (spaceIndex === -1) {
+      return { firstName: trimmed, lastName: '' };
+    }
+
+    return {
+      firstName: trimmed.slice(0, spaceIndex),
+      lastName: trimmed.slice(spaceIndex + 1).trim(),
+    };
+  }
+
+  async ensureHostFromRegistration(registration: CommunityRegistration) {
+    const email = registration.email.trim().toLowerCase();
+    const { firstName, lastName } = this.splitFullName(registration.fullName);
+    const existing = await this.userRepo.findOne({ where: { email } });
+
+    if (existing) {
+      if (existing.role !== Role.ADMIN) {
+        existing.role = Role.HOST;
+      }
+      existing.status = UserStatus.ACTIVE;
+      existing.firstName = firstName || existing.firstName;
+      existing.lastName = lastName || existing.lastName;
+      if (registration.phone) existing.phone = registration.phone;
+      if (registration.profession) existing.profession = registration.profession;
+
+      const saved = await this.userRepo.save(existing);
+      return this.sanitize(saved);
+    }
+
+    const passwordHash = await bcrypt.hash(randomBytes(24).toString('hex'), 10);
+    const user = this.userRepo.create({
+      email,
+      passwordHash,
+      firstName: firstName || 'Instructor',
+      lastName,
+      phone: registration.phone,
+      profession: registration.profession,
+      role: Role.HOST,
+      status: UserStatus.ACTIVE,
+    });
+
+    const saved = await this.userRepo.save(user);
+    return this.sanitize(saved);
+  }
+
   findHosts() {
     return this.userRepo.find({
       where: {
-        role: In([Role.HOST, Role.ADMIN]),
+        role: Role.HOST,
         status: UserStatus.ACTIVE,
       },
       order: { firstName: 'ASC', lastName: 'ASC' },
@@ -52,7 +103,7 @@ export class UsersService {
     const user = await this.userRepo.findOne({
       where: {
         id,
-        role: In([Role.HOST, Role.ADMIN]),
+        role: Role.HOST,
         status: UserStatus.ACTIVE,
       },
       select: {
@@ -71,7 +122,7 @@ export class UsersService {
     });
 
     if (!user) {
-      throw new NotFoundException('Host not found');
+      throw new NotFoundException('Instructor not found');
     }
 
     return user;

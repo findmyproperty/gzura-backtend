@@ -1,17 +1,34 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CommunityRegistrationStatus } from '../common/enums/community-registration-status.enum';
 import { CommunityRegistration } from '../entities/community-registration.entity';
+import { UsersService } from '../users/users.service';
 import { CreateCommunityRegistrationDto } from './dto/create-community-registration.dto';
 import { UpdateCommunityRegistrationDto } from './dto/update-community-registration.dto';
 
 @Injectable()
-export class CommunityRegistrationsService {
+export class CommunityRegistrationsService implements OnModuleInit {
   constructor(
     @InjectRepository(CommunityRegistration)
     private communityRegistrationRepo: Repository<CommunityRegistration>,
+    private usersService: UsersService,
   ) {}
+
+  async onModuleInit() {
+    await this.syncApprovedHostUsers();
+  }
+
+  private async syncApprovedHostUsers() {
+    const approved = await this.communityRegistrationRepo.find({
+      where: { status: CommunityRegistrationStatus.APPROVED },
+      order: { createdAt: 'ASC' },
+    });
+
+    for (const registration of approved) {
+      await this.usersService.ensureHostFromRegistration(registration);
+    }
+  }
 
   create(dto: CreateCommunityRegistrationDto) {
     const registration = this.communityRegistrationRepo.create({
@@ -74,7 +91,13 @@ export class CommunityRegistrationsService {
       registration.status = dto.status;
     }
 
-    return this.communityRegistrationRepo.save(registration);
+    const saved = await this.communityRegistrationRepo.save(registration);
+
+    if (saved.status === CommunityRegistrationStatus.APPROVED) {
+      await this.usersService.ensureHostFromRegistration(saved);
+    }
+
+    return saved;
   }
 
   async remove(id: string) {
