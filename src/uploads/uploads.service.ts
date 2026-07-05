@@ -6,7 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
-import { mkdir, writeFile } from 'fs/promises';
+import { mkdir, readFile, unlink, writeFile } from 'fs/promises';
 import { join } from 'path';
 import SftpClient from 'ssh2-sftp-client';
 
@@ -65,12 +65,13 @@ export class UploadsService {
 
     const extension = MIME_TO_EXT[file.mimetype] ?? '.jpg';
     const filename = `${randomUUID()}${extension}`;
+    const buffer = await this.getFileBuffer(file);
     const storage = this.config.get<string>('UPLOAD_STORAGE') || 'local';
 
     if (storage === 'sftp') {
-      await this.uploadViaSftp(filename, file.buffer);
+      await this.uploadViaSftp(filename, buffer);
     } else {
-      await this.saveLocally(filename, file.buffer);
+      await this.saveLocally(filename, buffer);
     }
 
     const publicBase =
@@ -96,12 +97,13 @@ export class UploadsService {
 
     const extension = CONTENT_MIME_TO_EXT[file.mimetype] ?? '';
     const filename = `${randomUUID()}${extension}`;
+    const buffer = await this.getFileBuffer(file);
     const storage = this.config.get<string>('UPLOAD_STORAGE') || 'local';
 
     if (storage === 'sftp') {
-      await this.uploadViaSftp(filename, file.buffer, 'content');
+      await this.uploadViaSftp(filename, buffer, 'content');
     } else {
-      await this.saveLocally(filename, file.buffer, 'content');
+      await this.saveLocally(filename, buffer, 'content');
     }
 
     const publicBase =
@@ -115,6 +117,22 @@ export class UploadsService {
       originalName: file.originalname,
       contentType: CONTENT_MIME_TO_TYPE[file.mimetype],
     };
+  }
+
+  private async getFileBuffer(file: Express.Multer.File): Promise<Buffer> {
+    if (file.buffer?.length) {
+      return file.buffer;
+    }
+
+    if (file.path) {
+      try {
+        return await readFile(file.path);
+      } finally {
+        await unlink(file.path).catch(() => undefined);
+      }
+    }
+
+    throw new BadRequestException('No file data received');
   }
 
   private getLocalUploadDir(kind: 'events' | 'content' = 'events') {
