@@ -49,7 +49,7 @@ async function bootstrap() {
     .filter(Boolean);
 
   app.enableCors({
-    origin: corsOrigins,
+    origin: ['http://localhost:3001', 'https://api.theybdc.com', 'http://gzura.com'],
     credentials: true,
   });
 
