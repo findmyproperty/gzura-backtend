@@ -63,7 +63,7 @@ async function bootstrap() {
 
   await ensureCourseOutlineColumn(app);
 
-  const port = process.env.PORT || 8001;
+  const port = 8001;
   await app.listen(port);
   console.log(`GZURA API running on http://localhost:${port}`);
 }
