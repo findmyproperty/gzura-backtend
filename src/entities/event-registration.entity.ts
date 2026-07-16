@@ -6,6 +6,7 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import { PaymentStatus } from '../common/enums/payment-status.enum';
 import { Event } from './event.entity';
 import { User } from './user.entity';
 
@@ -34,6 +35,35 @@ export class EventRegistration {
 
   @Column({ type: 'varchar', nullable: true })
   profession!: string | null;
+
+  @Column({ name: 'access_token', type: 'varchar', unique: true })
+  accessToken!: string;
+
+  @Column({
+    name: 'payment_status',
+    type: 'enum',
+    enum: PaymentStatus,
+    default: PaymentStatus.FREE,
+  })
+  paymentStatus!: PaymentStatus;
+
+  @Column({
+    name: 'amount_paid',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  amountPaid!: string | null;
+
+  @Column({ name: 'razorpay_order_id', type: 'varchar', nullable: true })
+  razorpayOrderId!: string | null;
+
+  @Column({ name: 'razorpay_payment_id', type: 'varchar', nullable: true })
+  razorpayPaymentId!: string | null;
+
+  @Column({ name: 'checked_in_at', type: 'datetime', nullable: true })
+  checkedInAt!: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

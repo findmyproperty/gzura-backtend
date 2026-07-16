@@ -3,6 +3,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 import { AuthService } from './auth.service';
 import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decorator';
 import { CompleteOnboardingDto } from './dto/complete-onboarding.dto';
+import { GoogleAuthDto } from './dto/google-auth.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 
@@ -18,6 +19,11 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Post('google')
+  googleLogin(@Body() dto: GoogleAuthDto) {
+    return this.authService.loginWithGoogle(dto.credential);
   }
 
   @Post('admin/login')

@@ -10,6 +10,7 @@ import { EventContentModule } from './event-content/event-content.module';
 import { EventsModule } from './events/events.module';
 import { GeocodingModule } from './geocoding/geocoding.module';
 import { HealthModule } from './health/health.module';
+import { PaymentsModule } from './payments/payments.module';
 import { RegistrationsModule } from './registrations/registrations.module';
 import { UsersModule } from './users/users.module';
 import { UploadsModule } from './uploads/uploads.module';
@@ -28,6 +29,7 @@ import { UploadsModule } from './uploads/uploads.module';
     GeocodingModule,
     HealthModule,
     RegistrationsModule,
+    PaymentsModule,
     CommunityRegistrationsModule,
     UsersModule,
     ContactModule,

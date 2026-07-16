@@ -18,8 +18,11 @@ export class User {
   @Column({ unique: true })
   email!: string;
 
-  @Column({ name: 'password_hash' })
-  passwordHash!: string;
+  @Column({ name: 'password_hash', type: 'varchar', nullable: true })
+  passwordHash!: string | null;
+
+  @Column({ name: 'google_id', type: 'varchar', nullable: true, unique: true })
+  googleId!: string | null;
 
   @Column({ type: 'enum', enum: Role, default: Role.MEMBER })
   role!: Role;

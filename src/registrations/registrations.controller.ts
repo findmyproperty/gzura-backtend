@@ -14,6 +14,8 @@ import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decor
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CreateRegistrationDto } from './dto/create-registration.dto';
+import { JoinEventDto } from './dto/join-event.dto';
+import { ValidatePassDto } from './dto/validate-pass.dto';
 import { RegistrationsService } from './registrations.service';
 
 @Controller('registrations')
@@ -27,6 +29,24 @@ export class RegistrationsController {
     @CurrentUser() user: JwtPayload | null,
   ) {
     return this.registrationsService.create(dto, user?.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('join')
+  join(@Body() dto: JoinEventDto, @CurrentUser() user: JwtPayload) {
+    return this.registrationsService.joinEventByUserId(dto.eventId, user.sub);
+  }
+
+  @Post('validate-pass')
+  validatePass(@Body() dto: ValidatePassDto) {
+    return this.registrationsService.validatePass(dto.accessToken);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Post('check-in')
+  checkIn(@Body() dto: ValidatePassDto) {
+    return this.registrationsService.checkInPass(dto.accessToken);
   }
 
   @UseGuards(JwtAuthGuard)
