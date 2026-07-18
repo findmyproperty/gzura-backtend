@@ -222,11 +222,18 @@ export class UploadsService {
 
       await client.put(buffer, remoteFile);
     } catch (error) {
-      const message =
+      const raw =
         error instanceof Error ? error.message : 'SFTP upload failed';
+      const isHandshakeTimeout =
+        /timed out while waiting for handshake|getConnection/i.test(raw);
+      const message = isHandshakeTimeout
+        ? `SFTP connection to ${host}:${connectConfig.port as number} timed out. ` +
+          'For local development set UPLOAD_STORAGE=local in backend/.env. ' +
+          'For production, ensure SSH/SFTP port 22 is open and credentials are correct.'
+        : raw;
       throw new InternalServerErrorException(message);
     } finally {
-      await client.end();
+      await client.end().catch(() => undefined);
     }
   }
 }
