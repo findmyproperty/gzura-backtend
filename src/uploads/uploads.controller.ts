@@ -17,7 +17,7 @@ export class UploadsController {
   constructor(private uploadsService: UploadsService) {}
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.HOST)
   @Post('event-thumbnail')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -29,7 +29,7 @@ export class UploadsController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.HOST)
   @Post('event-content')
   @UseInterceptors(
     FileInterceptor('file', {

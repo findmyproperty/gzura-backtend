@@ -36,7 +36,7 @@ export class EventContentService {
   private async ensureCanView(eventId: string, userId?: string, role?: Role) {
     await this.ensureEventExists(eventId);
 
-    if (role === Role.ADMIN) {
+    if (role === Role.ADMIN || role === Role.HOST) {
       return;
     }
 

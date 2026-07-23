@@ -35,7 +35,7 @@ export class EventContentController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.HOST)
   @Post()
   create(
     @Param('eventId') eventId: string,
@@ -45,7 +45,7 @@ export class EventContentController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.HOST)
   @Patch(':id')
   update(
     @Param('eventId') eventId: string,
@@ -56,7 +56,7 @@ export class EventContentController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.HOST)
   @Delete(':id')
   remove(@Param('eventId') eventId: string, @Param('id') id: string) {
     return this.eventContentService.remove(eventId, id);
