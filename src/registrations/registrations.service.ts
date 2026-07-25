@@ -13,6 +13,7 @@ import { isOnlineEventType } from '../common/utils/meeting.util';
 import { EventRegistration } from '../entities/event-registration.entity';
 import { Event } from '../entities/event.entity';
 import { User } from '../entities/user.entity';
+import { MailService } from '../integrations/mail.service';
 import { CreateRegistrationDto } from './dto/create-registration.dto';
 
 type JoinUser = Pick<
@@ -30,6 +31,7 @@ export class RegistrationsService {
     @InjectRepository(User)
     private userRepo: Repository<User>,
     private config: ConfigService,
+    private mailService: MailService,
   ) {}
 
   private generateAccessToken() {
@@ -99,6 +101,18 @@ export class RegistrationsService {
     };
   }
 
+  private async sendEnrollmentEmail(
+    registration: EventRegistration,
+    event: Event,
+  ) {
+    const passUrl = `${this.getFrontendUrl()}/pass/${registration.accessToken}`;
+    await this.mailService.sendEnrollmentConfirmation(
+      registration,
+      event,
+      passUrl,
+    );
+  }
+
   private async loadRegistration(id: string) {
     const registration = await this.registrationRepo.findOne({
       where: { id },
@@ -156,6 +170,7 @@ export class RegistrationsService {
     });
 
     const saved = await this.registrationRepo.save(registration);
+    await this.sendEnrollmentEmail(saved, event);
     return this.loadRegistration(saved.id);
   }
 
@@ -203,6 +218,7 @@ export class RegistrationsService {
     });
 
     const saved = await this.registrationRepo.save(registration);
+    await this.sendEnrollmentEmail(saved, event);
     return this.loadRegistration(saved.id);
   }
 
@@ -238,6 +254,7 @@ export class RegistrationsService {
     });
 
     const saved = await this.registrationRepo.save(registration);
+    await this.sendEnrollmentEmail(saved, event);
     return this.loadRegistration(saved.id);
   }
 

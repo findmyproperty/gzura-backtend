@@ -62,7 +62,6 @@ export class PaymentsService {
     if (this.registrationsService.isFreePrice(price)) {
       throw new BadRequestException('This event is free. Join directly without payment.');
     }
-
     const amountPaise = Math.round(price * 100);
     const order = await razorpay.orders.create({
       amount: amountPaise,
