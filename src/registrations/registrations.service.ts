@@ -313,11 +313,13 @@ export class RegistrationsService {
       status: registration.checkedInAt ? ('checked_in' as const) : ('enrolled' as const),
       message: registration.checkedInAt ? 'Checked in' : 'Enrolled',
       attendee: {
+        id: registration.id,
         fullName: registration.fullName,
         email: registration.email,
         eventTitle: registration.event.title,
         venue: registration.event.venue ?? registration.event.location,
         eventDate: registration.event.dateStart,
+        passUrl: `${this.getFrontendUrl()}/pass/${registration.accessToken}`,
       },
       checkedInAt: registration.checkedInAt
         ? registration.checkedInAt.toISOString()
