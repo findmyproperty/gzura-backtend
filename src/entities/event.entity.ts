@@ -97,6 +97,9 @@ export class Event {
   @Column({ type: 'enum', enum: EventStatus, default: EventStatus.DRAFT })
   status!: EventStatus;
 
+  @Column({ name: 'rejection_reason', type: 'text', nullable: true })
+  rejectionReason!: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 

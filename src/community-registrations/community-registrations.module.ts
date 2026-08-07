@@ -5,9 +5,11 @@ import { UsersModule } from '../users/users.module';
 import { CommunityRegistrationsController } from './community-registrations.controller';
 import { CommunityRegistrationsService } from './community-registrations.service';
 
+import { MailService } from '../integrations/mail.service';
+
 @Module({
   imports: [TypeOrmModule.forFeature([CommunityRegistration]), UsersModule],
   controllers: [CommunityRegistrationsController],
-  providers: [CommunityRegistrationsService],
+  providers: [CommunityRegistrationsService, MailService],
 })
 export class CommunityRegistrationsModule {}

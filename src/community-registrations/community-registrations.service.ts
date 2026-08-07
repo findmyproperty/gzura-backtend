@@ -7,12 +7,15 @@ import { UsersService } from '../users/users.service';
 import { CreateCommunityRegistrationDto } from './dto/create-community-registration.dto';
 import { UpdateCommunityRegistrationDto } from './dto/update-community-registration.dto';
 
+import { MailService } from '../integrations/mail.service';
+
 @Injectable()
 export class CommunityRegistrationsService implements OnModuleInit {
   constructor(
     @InjectRepository(CommunityRegistration)
     private communityRegistrationRepo: Repository<CommunityRegistration>,
     private usersService: UsersService,
+    private mailService: MailService,
   ) {}
 
   async onModuleInit() {
@@ -30,7 +33,7 @@ export class CommunityRegistrationsService implements OnModuleInit {
     }
   }
 
-  create(dto: CreateCommunityRegistrationDto) {
+  async create(dto: CreateCommunityRegistrationDto) {
     const registration = this.communityRegistrationRepo.create({
       fullName: dto.fullName.trim(),
       email: dto.email.trim().toLowerCase(),
@@ -39,10 +42,15 @@ export class CommunityRegistrationsService implements OnModuleInit {
       profession: dto.profession?.trim() ?? null,
       interest: dto.interest ?? null,
       message: dto.message?.trim() ?? null,
+      preferredDate: dto.preferredDate?.trim() ?? null,
+      preferredTime: dto.preferredTime?.trim() ?? null,
       status: CommunityRegistrationStatus.PENDING,
     });
 
-    return this.communityRegistrationRepo.save(registration);
+    const saved = await this.communityRegistrationRepo.save(registration);
+    await this.mailService.sendHostApplicationReceived(saved);
+    await this.mailService.sendHostApplicationAdminAlert(saved);
+    return saved;
   }
 
   findAll() {

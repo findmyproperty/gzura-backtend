@@ -6,10 +6,12 @@ import { UsersModule } from '../users/users.module';
 import { EventsController } from './events.controller';
 import { EventsService } from './events.service';
 
+import { MailService } from '../integrations/mail.service';
+
 @Module({
   imports: [TypeOrmModule.forFeature([Event]), UsersModule],
   controllers: [EventsController],
-  providers: [EventsService, GoogleCalendarService],
+  providers: [EventsService, GoogleCalendarService, MailService],
   exports: [EventsService],
 })
 export class EventsModule {}

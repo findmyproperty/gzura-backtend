@@ -17,6 +17,8 @@ import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { EventsService } from './events.service';
 
+import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decorator';
+
 @Controller('events')
 export class EventsController {
   constructor(private eventsService: EventsService) {}
@@ -34,8 +36,33 @@ export class EventsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.HOST)
   @Post()
-  create(@Body() dto: CreateEventDto) {
-    return this.eventsService.create(dto);
+  create(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: CreateEventDto,
+  ) {
+    const isAdmin = user?.role === Role.ADMIN;
+    return this.eventsService.create(dto, isAdmin);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Patch(':id/approve')
+  approve(@Param('id') id: string) {
+    return this.eventsService.approveEvent(id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Patch(':id/reject')
+  reject(@Param('id') id: string, @Body('reason') reason: string) {
+    return this.eventsService.rejectEvent(id, reason);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.HOST)
+  @Patch(':id/resubmit')
+  resubmit(@Param('id') id: string, @Body() dto?: UpdateEventDto) {
+    return this.eventsService.resubmitEvent(id, dto);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

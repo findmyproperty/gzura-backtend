@@ -32,6 +32,12 @@ export class CommunityRegistration {
   @Column({ type: 'text', nullable: true })
   message!: string | null;
 
+  @Column({ name: 'preferred_date', type: 'varchar', nullable: true })
+  preferredDate!: string | null;
+
+  @Column({ name: 'preferred_time', type: 'varchar', nullable: true })
+  preferredTime!: string | null;
+
   @Column({
     type: 'enum',
     enum: CommunityRegistrationStatus,

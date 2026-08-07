@@ -7,7 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import { UserStatus } from '../common/enums/user-status.enum';
 import { CommunityRegistration } from '../entities/community-registration.entity';
@@ -79,7 +79,7 @@ export class UsersService {
   findHosts() {
     return this.userRepo.find({
       where: {
-        role: Role.HOST,
+        role: In([Role.HOST, Role.ADMIN]),
         status: UserStatus.ACTIVE,
       },
       order: { firstName: 'ASC', lastName: 'ASC' },
@@ -103,7 +103,7 @@ export class UsersService {
     const user = await this.userRepo.findOne({
       where: {
         id,
-        role: Role.HOST,
+        role: In([Role.HOST, Role.ADMIN]),
         status: UserStatus.ACTIVE,
       },
       select: {

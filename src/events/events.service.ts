@@ -15,6 +15,7 @@ import {
 import { Event } from '../entities/event.entity';
 import { User } from '../entities/user.entity';
 import { GoogleCalendarService } from '../integrations/google-calendar.service';
+import { MailService } from '../integrations/mail.service';
 import { UsersService } from '../users/users.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
@@ -26,6 +27,7 @@ export class EventsService {
     private eventRepo: Repository<Event>,
     private googleCalendar: GoogleCalendarService,
     private usersService: UsersService,
+    private mailService: MailService,
   ) {}
 
   private hostDisplayName(host: Pick<User, 'firstName' | 'lastName'>) {
@@ -170,7 +172,9 @@ export class EventsService {
       .orderBy('event.dateStart', 'ASC');
 
     if (publishedOnly) {
-      qb.where('event.status = :status', { status: EventStatus.PUBLISHED });
+      qb.where('event.status IN (:...statuses)', {
+        statuses: [EventStatus.PUBLISHED, EventStatus.APPROVED],
+      });
     }
 
     const events = await qb.getMany();
@@ -190,7 +194,9 @@ export class EventsService {
       .where('event.id = :idOrSlug OR event.slug = :idOrSlug', { idOrSlug });
 
     if (publishedOnly) {
-      qb.andWhere('event.status = :status', { status: EventStatus.PUBLISHED });
+      qb.andWhere('event.status IN (:...statuses)', {
+        statuses: [EventStatus.PUBLISHED, EventStatus.APPROVED],
+      });
     }
 
     return qb.getOne();
@@ -209,7 +215,7 @@ export class EventsService {
     );
   }
 
-  async create(dto: CreateEventDto) {
+  async create(dto: CreateEventDto, isUserAdmin = true) {
     const isOnline = dto.type === EventFormat.ONLINE;
 
     if (isOnline) {
@@ -220,6 +226,10 @@ export class EventsService {
       dto.imageUrl,
       dto.galleryImages,
     );
+
+    const initialStatus = isUserAdmin
+      ? (dto.status ?? EventStatus.PUBLISHED)
+      : EventStatus.PENDING_APPROVAL;
 
     const event = this.eventRepo.create({
       title: dto.title,
@@ -245,7 +255,7 @@ export class EventsService {
       memberPrice: dto.memberPrice ?? null,
       maxAttendees: dto.maxAttendees ?? null,
       featured: dto.featured ?? false,
-      status: dto.status ?? EventStatus.DRAFT,
+      status: initialStatus,
     });
 
     await this.applyHostDetails(
@@ -260,6 +270,12 @@ export class EventsService {
     }
 
     const saved = await this.eventRepo.save(event);
+
+    if (saved.status === EventStatus.PENDING_APPROVAL) {
+      const hostName = saved.speakerName || 'Host';
+      await this.mailService.sendEventSubmissionNoticeToAdmin(saved, hostName);
+    }
+
     return this.mapEventWithCount(saved, 0);
   }
 
@@ -352,6 +368,75 @@ export class EventsService {
       saved,
       (count as Event & { registrationCount: number })?.registrationCount ?? 0,
     );
+  }
+
+  async approveEvent(id: string) {
+    const event = await this.eventRepo.findOne({
+      where: { id },
+      relations: ['host'],
+    });
+    if (!event) {
+      throw new NotFoundException('Event not found');
+    }
+
+    event.status = EventStatus.PUBLISHED;
+    event.rejectionReason = null;
+    const saved = await this.eventRepo.save(event);
+
+    const hostEmail = event.host?.email;
+    if (hostEmail) {
+      await this.mailService.sendEventApprovedNotice(saved, hostEmail);
+    }
+
+    return this.findOne(saved.id, false);
+  }
+
+  async rejectEvent(id: string, reason: string) {
+    const event = await this.eventRepo.findOne({
+      where: { id },
+      relations: ['host'],
+    });
+    if (!event) {
+      throw new NotFoundException('Event not found');
+    }
+
+    if (!reason || !reason.trim()) {
+      throw new BadRequestException('Rejection reason comment is required');
+    }
+
+    event.status = EventStatus.REJECTED;
+    event.rejectionReason = reason.trim();
+    const saved = await this.eventRepo.save(event);
+
+    const hostEmail = event.host?.email;
+    if (hostEmail) {
+      await this.mailService.sendEventRejectedNotice(saved, hostEmail, reason.trim());
+    }
+
+    return this.findOne(saved.id, false);
+  }
+
+  async resubmitEvent(id: string, dto?: UpdateEventDto) {
+    if (dto) {
+      await this.update(id, dto);
+    }
+
+    const event = await this.eventRepo.findOne({
+      where: { id },
+      relations: ['host'],
+    });
+    if (!event) {
+      throw new NotFoundException('Event not found');
+    }
+
+    event.status = EventStatus.RESUBMITTED;
+    event.rejectionReason = null;
+    const saved = await this.eventRepo.save(event);
+
+    const hostName = saved.speakerName || 'Host';
+    await this.mailService.sendEventSubmissionNoticeToAdmin(saved, hostName);
+
+    return this.findOne(saved.id, false);
   }
 
   async remove(id: string) {

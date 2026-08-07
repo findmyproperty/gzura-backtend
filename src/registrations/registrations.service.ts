@@ -255,6 +255,10 @@ export class RegistrationsService {
 
     const saved = await this.registrationRepo.save(registration);
     await this.sendEnrollmentEmail(saved, event);
+    await this.mailService.sendPaymentInvoice(saved, event, {
+      razorpayPaymentId: payment.razorpayPaymentId,
+      amount: payment.amount,
+    });
     return this.loadRegistration(saved.id);
   }
 

@@ -168,13 +168,17 @@ async function bootstrap() {
   app.useStaticAssets(uploadDir, { prefix: '/uploads/events' });
   app.useStaticAssets(contentUploadDir, { prefix: '/uploads/event-content' });
 
-  const corsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3001')
+  if (!process.env.CORS_ORIGIN) {
+    throw Error("Please set the cors origin domain in your .env file")
+  }
+
+  const corsOrigins = process.env.CORS_ORIGIN
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
 
   app.enableCors({
-    origin: ['http://localhost:3001', 'https://api.theybdc.com', 'https://gzura.com'],
+    origin: corsOrigins,
     credentials: true,
   });
 
@@ -186,10 +190,10 @@ async function bootstrap() {
     }),
   );
 
-  await ensureCourseOutlineColumn(app);
-  await ensureHostIdColumn(app);
-  await ensureGoogleAuthColumns(app);
-  await ensureRegistrationPassColumns(app);
+  // await ensureCourseOutlineColumn(app);
+  // await ensureHostIdColumn(app);
+  // await ensureGoogleAuthColumns(app);
+  // await ensureRegistrationPassColumns(app);
 
   const port = 8001;
   await app.listen(port);

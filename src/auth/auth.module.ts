@@ -8,6 +8,8 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 
+import { SmsService } from '../integrations/sms.service';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([User]),
@@ -23,7 +25,7 @@ import { JwtStrategy } from './jwt.strategy';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, SmsService],
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}

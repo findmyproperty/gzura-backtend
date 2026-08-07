@@ -17,6 +17,10 @@ import { CompleteOnboardingDto } from './dto/complete-onboarding.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 
+import { SmsService } from '../integrations/sms.service';
+import { SendOtpDto } from './dto/send-otp.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -24,6 +28,7 @@ export class AuthService {
     private userRepo: Repository<User>,
     private jwtService: JwtService,
     private config: ConfigService,
+    private smsService: SmsService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -190,6 +195,90 @@ export class AuthService {
     await this.userRepo.save(user);
 
     return this.getProfile(userId);
+  }
+
+  async sendOtp(dto: SendOtpDto) {
+    const phone = dto.phone.trim();
+    if (!phone) {
+      throw new BadRequestException('Phone number is required');
+    }
+
+    const fallbackOtp = this.smsService.getFallbackOtp();
+    const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpCode = fallbackOtp || generatedOtp;
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+
+    let user = await this.userRepo.findOne({ where: { phone } });
+    if (!user) {
+      const sanitizedPhone = phone.replace(/[^0-9]/g, '');
+      const tempEmail = `phone_${sanitizedPhone || Date.now()}@gzura.mobile`;
+      user = this.userRepo.create({
+        phone,
+        email: tempEmail,
+        firstName: 'Mobile',
+        lastName: 'User',
+        role: Role.MEMBER,
+      });
+    }
+
+    user.otpCode = otpCode;
+    user.otpExpiresAt = expiresAt;
+    await this.userRepo.save(user);
+
+    await this.smsService.sendOtp(phone, otpCode);
+
+    return {
+      message: 'OTP sent successfully',
+      phone,
+      ...(fallbackOtp ? { devOtp: fallbackOtp } : {}),
+    };
+  }
+
+  async verifyOtp(dto: VerifyOtpDto) {
+    const phone = dto.phone.trim();
+    const otpInput = dto.otp.trim();
+    const fallbackOtp = this.smsService.getFallbackOtp();
+
+    const user = await this.userRepo.findOne({ where: { phone } });
+    if (!user) {
+      throw new UnauthorizedException('Invalid phone number or OTP');
+    }
+
+    if (user.status === UserStatus.BLOCKED) {
+      throw new UnauthorizedException('Account is blocked');
+    }
+
+    const isValidFallback = fallbackOtp && otpInput === fallbackOtp;
+    const isValidStoredOtp =
+      user.otpCode === otpInput &&
+      user.otpExpiresAt &&
+      new Date() < new Date(user.otpExpiresAt);
+
+    let isTwilioVerified = false;
+    if (!isValidFallback && !isValidStoredOtp) {
+      isTwilioVerified = await this.smsService.verifyOtp(phone, otpInput);
+    }
+
+    if (!isValidFallback && !isValidStoredOtp && !isTwilioVerified) {
+      throw new UnauthorizedException('Invalid or expired OTP');
+    }
+
+    user.otpCode = null;
+    user.otpExpiresAt = null;
+    user.lastLoginAt = new Date();
+
+    if (dto.firstName) user.firstName = dto.firstName;
+    if (dto.lastName) user.lastName = dto.lastName;
+    if (dto.email && (user.email.endsWith('@gzura.mobile') || dto.email !== user.email)) {
+      const existingEmail = await this.userRepo.findOne({ where: { email: dto.email } });
+      if (!existingEmail || existingEmail.id === user.id) {
+        user.email = dto.email;
+      }
+    }
+
+    await this.userRepo.save(user);
+
+    return this.buildAuthResponse(user);
   }
 
   private buildAuthResponse(user: {

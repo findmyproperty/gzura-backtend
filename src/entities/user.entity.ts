@@ -42,6 +42,12 @@ export class User {
   @Column({ type: 'varchar', nullable: true })
   phone!: string | null;
 
+  @Column({ name: 'otp_code', type: 'varchar', nullable: true })
+  otpCode!: string | null;
+
+  @Column({ name: 'otp_expires_at', type: 'datetime', nullable: true })
+  otpExpiresAt!: Date | null;
+
   @Column({ type: 'varchar', nullable: true })
   city!: string | null;
 
