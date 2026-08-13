@@ -40,8 +40,14 @@ export class EventContentController {
   create(
     @Param('eventId') eventId: string,
     @Body() dto: CreateEventContentDto,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.eventContentService.create(eventId, dto);
+    return this.eventContentService.create(
+      eventId,
+      dto,
+      user.sub,
+      user.role as Role,
+    );
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -51,14 +57,30 @@ export class EventContentController {
     @Param('eventId') eventId: string,
     @Param('id') id: string,
     @Body() dto: UpdateEventContentDto,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.eventContentService.update(eventId, id, dto);
+    return this.eventContentService.update(
+      eventId,
+      id,
+      dto,
+      user.sub,
+      user.role as Role,
+    );
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.HOST)
   @Delete(':id')
-  remove(@Param('eventId') eventId: string, @Param('id') id: string) {
-    return this.eventContentService.remove(eventId, id);
+  remove(
+    @Param('eventId') eventId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.eventContentService.remove(
+      eventId,
+      id,
+      user.sub,
+      user.role as Role,
+    );
   }
 }

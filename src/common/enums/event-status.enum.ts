@@ -5,4 +5,5 @@ export enum EventStatus {
   REJECTED = 'REJECTED',
   RESUBMITTED = 'RESUBMITTED',
   PUBLISHED = 'PUBLISHED',
+  PENDING = 'PENDING',
 }

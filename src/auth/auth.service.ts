@@ -9,16 +9,24 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { google } from 'googleapis';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import { UserStatus } from '../common/enums/user-status.enum';
+import {
+  normalizePhone,
+  phoneLookupVariants,
+} from '../common/utils/phone.util';
+import { EventRegistration } from '../entities/event-registration.entity';
 import { User } from '../entities/user.entity';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { CompleteOnboardingDto } from './dto/complete-onboarding.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 import { SmsService } from '../integrations/sms.service';
 import { SendOtpDto } from './dto/send-otp.dto';
+import { VerifyLinkPhoneDto } from './dto/verify-link-phone.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 
 @Injectable()
@@ -26,6 +34,8 @@ export class AuthService {
   constructor(
     @InjectRepository(User)
     private userRepo: Repository<User>,
+    @InjectRepository(EventRegistration)
+    private registrationRepo: Repository<EventRegistration>,
     private jwtService: JwtService,
     private config: ConfigService,
     private smsService: SmsService,
@@ -40,6 +50,19 @@ export class AuthService {
       throw new ConflictException('Email already registered');
     }
 
+    const phone = dto.phone?.trim()
+      ? this.requireNormalizedPhone(dto.phone)
+      : null;
+
+    if (phone) {
+      const existingPhone = await this.findUserByPhone(phone);
+      if (existingPhone) {
+        throw new ConflictException(
+          'This mobile number is already linked to another account',
+        );
+      }
+    }
+
     const passwordHash = await bcrypt.hash(dto.password, 10);
 
     const user = this.userRepo.create({
@@ -47,7 +70,7 @@ export class AuthService {
       passwordHash,
       firstName: dto.firstName,
       lastName: dto.lastName,
-      phone: dto.phone ?? null,
+      phone,
       city: dto.city ?? null,
       profession: dto.profession ?? null,
       role: Role.MEMBER,
@@ -101,6 +124,8 @@ export class AuthService {
         phone: true,
         city: true,
         profession: true,
+        avatarUrl: true,
+        passwordHash: true,
         onboardingGoal: true,
         onboardingInterests: true,
         onboardingCompletedAt: true,
@@ -112,7 +137,7 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    return user;
+    return this.toPublicProfile(user);
   }
 
   async loginWithGoogle(credential: string) {
@@ -140,7 +165,7 @@ export class AuthService {
       });
       payload = ticket.getPayload() ?? {};
     } catch {
-      throw new UnauthorizedException('Invalid Google sign-in token');
+      payload = await this.getGoogleUserInfo(credential);
     }
 
     if (!payload.sub || !payload.email) {
@@ -183,6 +208,28 @@ export class AuthService {
     return this.buildAuthResponse(user);
   }
 
+  private async getGoogleUserInfo(accessToken: string) {
+    const response = await fetch(
+      'https://www.googleapis.com/oauth2/v3/userinfo',
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+
+    if (!response.ok) {
+      throw new UnauthorizedException('Invalid Google sign-in token');
+    }
+
+    const data = (await response.json()) as {
+      sub?: string;
+      email?: string;
+      email_verified?: boolean;
+      given_name?: string;
+      family_name?: string;
+      name?: string;
+    };
+
+    return data;
+  }
+
   async completeOnboarding(userId: string, dto: CompleteOnboardingDto) {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) {
@@ -198,19 +245,16 @@ export class AuthService {
   }
 
   async sendOtp(dto: SendOtpDto) {
-    const phone = dto.phone.trim();
-    if (!phone) {
-      throw new BadRequestException('Phone number is required');
-    }
+    const phone = this.requireNormalizedPhone(dto.phone);
 
     const fallbackOtp = this.smsService.getFallbackOtp();
     const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpCode = fallbackOtp || generatedOtp;
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
 
-    let user = await this.userRepo.findOne({ where: { phone } });
+    let user = await this.findUserByPhone(phone);
     if (!user) {
-      const sanitizedPhone = phone.replace(/[^0-9]/g, '');
+      const sanitizedPhone = phone.replace(/\D/g, '');
       const tempEmail = `phone_${sanitizedPhone || Date.now()}@gzura.mobile`;
       user = this.userRepo.create({
         phone,
@@ -219,6 +263,9 @@ export class AuthService {
         lastName: 'User',
         role: Role.MEMBER,
       });
+    } else {
+      user.phone = phone;
+      await this.releaseStubPhones(user.id, phone);
     }
 
     user.otpCode = otpCode;
@@ -235,11 +282,10 @@ export class AuthService {
   }
 
   async verifyOtp(dto: VerifyOtpDto) {
-    const phone = dto.phone.trim();
+    const phone = this.requireNormalizedPhone(dto.phone);
     const otpInput = dto.otp.trim();
-    const fallbackOtp = this.smsService.getFallbackOtp();
 
-    const user = await this.userRepo.findOne({ where: { phone } });
+    const user = await this.findUserByPhone(phone);
     if (!user) {
       throw new UnauthorizedException('Invalid phone number or OTP');
     }
@@ -248,24 +294,13 @@ export class AuthService {
       throw new UnauthorizedException('Account is blocked');
     }
 
-    const isValidFallback = fallbackOtp && otpInput === fallbackOtp;
-    const isValidStoredOtp =
-      user.otpCode === otpInput &&
-      user.otpExpiresAt &&
-      new Date() < new Date(user.otpExpiresAt);
-
-    let isTwilioVerified = false;
-    if (!isValidFallback && !isValidStoredOtp) {
-      isTwilioVerified = await this.smsService.verifyOtp(phone, otpInput);
-    }
-
-    if (!isValidFallback && !isValidStoredOtp && !isTwilioVerified) {
-      throw new UnauthorizedException('Invalid or expired OTP');
-    }
+    await this.assertValidOtp(user, phone, otpInput);
 
     user.otpCode = null;
     user.otpExpiresAt = null;
+    user.pendingPhone = null;
     user.lastLoginAt = new Date();
+    user.phone = phone;
 
     if (dto.firstName) user.firstName = dto.firstName;
     if (dto.lastName) user.lastName = dto.lastName;
@@ -281,12 +316,307 @@ export class AuthService {
     return this.buildAuthResponse(user);
   }
 
+  async sendLinkPhoneOtp(userId: string, dto: SendOtpDto) {
+    const phone = this.requireNormalizedPhone(dto.phone);
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const existing = await this.findUserByPhone(phone);
+    if (existing && existing.id !== user.id) {
+      throw new ConflictException(
+        'This mobile number is already linked to another account',
+      );
+    }
+
+    if (existing?.id === user.id) {
+      throw new BadRequestException(
+        'This mobile number is already linked to your account',
+      );
+    }
+
+    const fallbackOtp = this.smsService.getFallbackOtp();
+    const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpCode = fallbackOtp || generatedOtp;
+
+    user.pendingPhone = phone;
+    user.otpCode = otpCode;
+    user.otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    await this.userRepo.save(user);
+
+    await this.smsService.sendOtp(phone, otpCode);
+
+    return {
+      message: 'OTP sent successfully',
+      phone,
+      ...(fallbackOtp ? { devOtp: fallbackOtp } : {}),
+    };
+  }
+
+  async verifyLinkPhone(userId: string, dto: VerifyLinkPhoneDto) {
+    const phone = this.requireNormalizedPhone(dto.phone);
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const pending = user.pendingPhone ? normalizePhone(user.pendingPhone) : '';
+    if (!pending || pending !== phone) {
+      throw new BadRequestException(
+        'Request a verification code for this number first',
+      );
+    }
+
+    await this.assertValidOtp(user, phone, dto.otp.trim());
+
+    const existing = await this.findUserByPhone(phone);
+    if (existing && existing.id !== user.id) {
+      throw new ConflictException(
+        'This mobile number is already linked to another account',
+      );
+    }
+
+    user.phone = phone;
+    user.pendingPhone = null;
+    user.otpCode = null;
+    user.otpExpiresAt = null;
+    await this.userRepo.save(user);
+
+    return this.buildAuthResponse(user);
+  }
+
+  async unlinkPhone(userId: string) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (!user.phone) {
+      throw new BadRequestException('No mobile number is linked');
+    }
+
+    user.phone = null;
+    user.pendingPhone = null;
+    user.otpCode = null;
+    user.otpExpiresAt = null;
+    await this.userRepo.save(user);
+
+    return this.buildAuthResponse(user);
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const nextEmail = dto.email?.trim().toLowerCase();
+    if (nextEmail && nextEmail !== user.email) {
+      const existing = await this.userRepo.findOne({
+        where: { email: nextEmail },
+      });
+      if (existing) {
+        throw new ConflictException('Email already in use');
+      }
+      user.email = nextEmail;
+    }
+
+    if (dto.firstName !== undefined) {
+      const firstName = dto.firstName.trim();
+      if (!firstName) {
+        throw new BadRequestException('First name is required');
+      }
+      user.firstName = firstName;
+    }
+
+    if (dto.lastName !== undefined) user.lastName = dto.lastName.trim();
+    if (dto.phone !== undefined) {
+      const nextPhone = dto.phone.trim()
+        ? this.requireNormalizedPhone(dto.phone)
+        : null;
+      if (nextPhone) {
+        const existingPhone = await this.findUserByPhone(nextPhone);
+        if (existingPhone && existingPhone.id !== user.id) {
+          throw new ConflictException(
+            'This mobile number is already linked to another account',
+          );
+        }
+      }
+      user.phone = nextPhone;
+    }
+    if (dto.city !== undefined) user.city = dto.city.trim() || null;
+    if (dto.profession !== undefined) {
+      user.profession = dto.profession.trim() || null;
+    }
+    if (dto.avatarUrl !== undefined) {
+      user.avatarUrl = dto.avatarUrl.trim() || null;
+    }
+
+    await this.userRepo.save(user);
+
+    await this.registrationRepo.update(
+      { userId: user.id },
+      {
+        email: user.email,
+        fullName: `${user.firstName} ${user.lastName}`.trim(),
+      },
+    );
+
+    const profile = await this.getProfile(user.id);
+    return {
+      accessToken: this.jwtService.sign({
+        sub: profile.id,
+        email: profile.email,
+        role: profile.role,
+      }),
+      user: profile,
+    };
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (!user.passwordHash) {
+      throw new BadRequestException(
+        'Password is managed by your sign-in provider',
+      );
+    }
+
+    const valid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!valid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    user.passwordHash = await bcrypt.hash(dto.newPassword, 10);
+    await this.userRepo.save(user);
+
+    return { success: true };
+  }
+
+  private requireNormalizedPhone(phone: string): string {
+    const normalized = normalizePhone(phone);
+    if (!normalized) {
+      throw new BadRequestException('Enter a valid mobile number');
+    }
+    return normalized;
+  }
+
+  private async findUserByPhone(phone: string): Promise<User | null> {
+    const variants = phoneLookupVariants(phone);
+    if (variants.length === 0) return null;
+
+    const users = await this.userRepo.find({
+      where: { phone: In(variants) },
+    });
+
+    return this.pickUserForPhone(users);
+  }
+
+  private pickUserForPhone(users: User[]): User | null {
+    if (users.length === 0) return null;
+
+    const roleRank = (role: Role) => {
+      if (role === Role.ADMIN) return 0;
+      if (role === Role.HOST) return 1;
+      return 2;
+    };
+
+    return [...users].sort((a, b) => {
+      const aStub = a.email.endsWith('@gzura.mobile') ? 1 : 0;
+      const bStub = b.email.endsWith('@gzura.mobile') ? 1 : 0;
+      if (aStub !== bStub) return aStub - bStub;
+      return roleRank(a.role) - roleRank(b.role);
+    })[0];
+  }
+
+  private async releaseStubPhones(keepUserId: string, phone: string) {
+    const variants = phoneLookupVariants(phone);
+    if (variants.length === 0) return;
+
+    const users = await this.userRepo.find({
+      where: { phone: In(variants) },
+    });
+
+    for (const other of users) {
+      if (other.id === keepUserId) continue;
+      if (!other.email.endsWith('@gzura.mobile')) continue;
+      other.phone = null;
+      other.otpCode = null;
+      other.otpExpiresAt = null;
+      await this.userRepo.save(other);
+    }
+  }
+
+  private async assertValidOtp(user: User, phone: string, otpInput: string) {
+    const fallbackOtp = this.smsService.getFallbackOtp();
+    const isValidFallback = Boolean(fallbackOtp && otpInput === fallbackOtp);
+    const isValidStoredOtp = Boolean(
+      user.otpCode === otpInput &&
+        user.otpExpiresAt &&
+        new Date() < new Date(user.otpExpiresAt),
+    );
+
+    let isTwilioVerified = false;
+    if (!isValidFallback && !isValidStoredOtp) {
+      isTwilioVerified = await this.smsService.verifyOtp(phone, otpInput);
+    }
+
+    if (!isValidFallback && !isValidStoredOtp && !isTwilioVerified) {
+      throw new UnauthorizedException('Invalid or expired OTP');
+    }
+  }
+
+  private toPublicProfile(user: {
+    id: string;
+    email: string;
+    role: Role;
+    firstName: string;
+    lastName: string;
+    phone?: string | null;
+    city?: string | null;
+    profession?: string | null;
+    avatarUrl?: string | null;
+    passwordHash?: string | null;
+    onboardingGoal?: string | null;
+    onboardingInterests?: string[] | null;
+    onboardingCompletedAt?: Date | null;
+    createdAt?: Date;
+  }) {
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phone: user.phone ?? null,
+      city: user.city ?? null,
+      profession: user.profession ?? null,
+      avatarUrl: user.avatarUrl ?? null,
+      hasPassword: Boolean(user.passwordHash),
+      onboardingGoal: user.onboardingGoal ?? null,
+      onboardingInterests: user.onboardingInterests ?? null,
+      onboardingCompletedAt: user.onboardingCompletedAt
+        ? user.onboardingCompletedAt.toISOString()
+        : null,
+      createdAt: user.createdAt,
+    };
+  }
+
   private buildAuthResponse(user: {
     id: string;
     email: string;
     role: Role;
     firstName: string;
     lastName: string;
+    phone?: string | null;
+    city?: string | null;
+    profession?: string | null;
+    avatarUrl?: string | null;
+    passwordHash?: string | null;
     onboardingGoal?: string | null;
     onboardingInterests?: string[] | null;
     onboardingCompletedAt?: Date | null;
@@ -296,18 +626,7 @@ export class AuthService {
 
     return {
       accessToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        onboardingGoal: user.onboardingGoal ?? null,
-        onboardingInterests: user.onboardingInterests ?? null,
-        onboardingCompletedAt: user.onboardingCompletedAt
-          ? user.onboardingCompletedAt.toISOString()
-          : null,
-      },
+      user: this.toPublicProfile(user),
     };
   }
 }

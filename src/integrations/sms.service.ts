@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Twilio } from 'twilio';
+import { normalizePhone } from '../common/utils/phone.util';
 
 @Injectable()
 export class SmsService {
@@ -27,15 +28,7 @@ export class SmsService {
   }
 
   private formatE164Phone(phone: string): string {
-    const trimmed = phone.trim();
-    if (trimmed.startsWith('+')) {
-      return trimmed;
-    }
-    const digitsOnly = trimmed.replace(/\D/g, '');
-    if (digitsOnly.length === 10) {
-      return `+91${digitsOnly}`;
-    }
-    return `+${digitsOnly}`;
+    return normalizePhone(phone) || phone.trim();
   }
 
   async sendOtp(phone: string, otpCode: string): Promise<boolean> {

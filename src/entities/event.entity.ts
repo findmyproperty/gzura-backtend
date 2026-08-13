@@ -9,9 +9,11 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { EventStatus } from '../common/enums/event-status.enum';
+import { EventActivityLog } from './event-activity-log.entity';
 import { EventRegistration } from './event-registration.entity';
 import { EventContentItem } from './event-content-item.entity';
 import { User } from './user.entity';
+import { EventPendingChanges } from '../events/pending-changes';
 
 @Entity('events')
 export class Event {
@@ -100,6 +102,9 @@ export class Event {
   @Column({ name: 'rejection_reason', type: 'text', nullable: true })
   rejectionReason!: string | null;
 
+  @Column({ name: 'pending_changes', type: 'json', nullable: true })
+  pendingChanges!: EventPendingChanges | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
@@ -111,4 +116,7 @@ export class Event {
 
   @OneToMany(() => EventContentItem, (item) => item.event)
   contentItems!: EventContentItem[];
+
+  @OneToMany(() => EventActivityLog, (log) => log.event)
+  activityLogs!: EventActivityLog[];
 }

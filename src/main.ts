@@ -151,6 +151,172 @@ async function ensureCourseOutlineColumn(app: NestExpressApplication) {
   );
 }
 
+async function ensureUserOtpColumns(app: NestExpressApplication) {
+  const dataSource = app.get(DataSource);
+  const columns = [
+    { name: 'otp_code', sql: 'VARCHAR(10) NULL AFTER `phone`' },
+    { name: 'otp_expires_at', sql: 'DATETIME NULL AFTER `otp_code`' },
+  ];
+
+  for (const column of columns) {
+    const rows = await dataSource.query(
+      `
+        SELECT COUNT(*) AS count
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'users'
+          AND column_name = ?
+      `,
+      [column.name],
+    );
+
+    if (Number(rows?.[0]?.count ?? 0) === 0) {
+      await dataSource.query(
+        `ALTER TABLE users ADD COLUMN ${column.name} ${column.sql}`,
+      );
+    }
+  }
+}
+
+async function ensurePendingPhoneColumn(app: NestExpressApplication) {
+  const dataSource = app.get(DataSource);
+  const rows = await dataSource.query(
+    `
+      SELECT COUNT(*) AS count
+      FROM information_schema.columns
+      WHERE table_schema = DATABASE()
+        AND table_name = 'users'
+        AND column_name = 'pending_phone'
+    `,
+  );
+
+  if (Number(rows?.[0]?.count ?? 0) > 0) return;
+
+  await dataSource.query(
+    'ALTER TABLE users ADD COLUMN pending_phone VARCHAR(255) NULL AFTER otp_expires_at',
+  );
+}
+
+async function ensureRejectionReasonColumn(app: NestExpressApplication) {
+  const dataSource = app.get(DataSource);
+  const rows = await dataSource.query(
+    `
+      SELECT COUNT(*) AS count
+      FROM information_schema.columns
+      WHERE table_schema = DATABASE()
+        AND table_name = 'events'
+        AND column_name = 'rejection_reason'
+    `,
+  );
+
+  if (Number(rows?.[0]?.count ?? 0) > 0) return;
+
+  await dataSource.query(
+    'ALTER TABLE events ADD COLUMN rejection_reason TEXT NULL AFTER status',
+  );
+}
+
+async function ensureEventStatusEnum(app: NestExpressApplication) {
+  const dataSource = app.get(DataSource);
+  await dataSource.query(
+    `ALTER TABLE events
+      MODIFY COLUMN status ENUM(
+        'DRAFT',
+        'PENDING_APPROVAL',
+        'APPROVED',
+        'REJECTED',
+        'RESUBMITTED',
+        'PUBLISHED',
+        'PENDING'
+      ) NOT NULL DEFAULT 'DRAFT'`,
+  );
+}
+
+async function ensureEventActivityLogsTable(app: NestExpressApplication) {
+  const dataSource = app.get(DataSource);
+  await dataSource.query(`
+    CREATE TABLE IF NOT EXISTS event_activity_logs (
+      id VARCHAR(36) NOT NULL,
+      event_id VARCHAR(36) NOT NULL,
+      action VARCHAR(32) NOT NULL,
+      message TEXT NULL,
+      actor_id VARCHAR(36) NULL,
+      actor_name VARCHAR(255) NULL,
+      actor_role VARCHAR(32) NULL,
+      created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+      PRIMARY KEY (id),
+      INDEX event_activity_logs_event_id_idx (event_id),
+      CONSTRAINT event_activity_logs_event_id_fkey
+        FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  `);
+}
+
+async function ensureUserAvatarColumn(app: NestExpressApplication) {
+  const dataSource = app.get(DataSource);
+  const rows = await dataSource.query(
+    `
+      SELECT COUNT(*) AS count
+      FROM information_schema.columns
+      WHERE table_schema = DATABASE()
+        AND table_name = 'users'
+        AND column_name = 'avatar_url'
+    `,
+  );
+
+  if (Number(rows?.[0]?.count ?? 0) > 0) return;
+
+  await dataSource.query(
+    'ALTER TABLE users ADD COLUMN avatar_url VARCHAR(500) NULL AFTER profession',
+  );
+}
+
+async function ensureCommunityPreferredColumns(app: NestExpressApplication) {
+  const dataSource = app.get(DataSource);
+  const columns = [
+    { name: 'preferred_date', sql: 'VARCHAR(255) NULL AFTER `message`' },
+    { name: 'preferred_time', sql: 'VARCHAR(255) NULL AFTER `preferred_date`' },
+  ];
+
+  for (const column of columns) {
+    const rows = await dataSource.query(
+      `
+        SELECT COUNT(*) AS count
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'community_registrations'
+          AND column_name = ?
+      `,
+      [column.name],
+    );
+
+    if (Number(rows?.[0]?.count ?? 0) === 0) {
+      await dataSource.query(
+        `ALTER TABLE community_registrations ADD COLUMN ${column.name} ${column.sql}`,
+      );
+    }
+  }
+}
+
+async function ensurePendingChangesColumn(app: NestExpressApplication) {
+  const dataSource = app.get(DataSource);
+  const rows = await dataSource.query(
+    `
+      SELECT COUNT(*) AS count
+      FROM information_schema.columns
+      WHERE table_schema = DATABASE()
+        AND table_name = 'events'
+        AND column_name = 'pending_changes'
+    `,
+  );
+
+  if (Number(rows?.[0]?.count ?? 0) > 0) return;
+
+  await dataSource.query(
+    'ALTER TABLE events ADD COLUMN pending_changes JSON NULL AFTER rejection_reason',
+  );
+}
+
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
@@ -177,6 +343,10 @@ async function bootstrap() {
     .map((origin) => origin.trim())
     .filter(Boolean);
 
+  if (!corsOrigins.includes('http://localhost:3000')) {
+    corsOrigins.push('http://localhost:3000');
+  }
+
   app.enableCors({
     origin: corsOrigins,
     credentials: true,
@@ -190,10 +360,18 @@ async function bootstrap() {
     }),
   );
 
-  // await ensureCourseOutlineColumn(app);
-  // await ensureHostIdColumn(app);
-  // await ensureGoogleAuthColumns(app);
-  // await ensureRegistrationPassColumns(app);
+  await ensureCourseOutlineColumn(app);
+  await ensureHostIdColumn(app);
+  await ensureGoogleAuthColumns(app);
+  await ensureRegistrationPassColumns(app);
+  await ensureRejectionReasonColumn(app);
+  await ensurePendingChangesColumn(app);
+  await ensureEventStatusEnum(app);
+  await ensureEventActivityLogsTable(app);
+  await ensureUserAvatarColumn(app);
+  await ensureUserOtpColumns(app);
+  await ensurePendingPhoneColumn(app);
+  await ensureCommunityPreferredColumns(app);
 
   const port = 8001;
   await app.listen(port);

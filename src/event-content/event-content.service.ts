@@ -34,9 +34,13 @@ export class EventContentService {
   }
 
   private async ensureCanView(eventId: string, userId?: string, role?: Role) {
-    await this.ensureEventExists(eventId);
+    const event = await this.ensureEventExists(eventId);
 
-    if (role === Role.ADMIN || role === Role.HOST) {
+    if (role === Role.ADMIN) {
+      return;
+    }
+
+    if (role === Role.HOST && userId && event.hostId === userId) {
       return;
     }
 
@@ -53,6 +57,24 @@ export class EventContentService {
     }
   }
 
+  private async ensureCanManage(
+    eventId: string,
+    userId?: string,
+    role?: Role,
+  ) {
+    const event = await this.ensureEventExists(eventId);
+
+    if (role === Role.ADMIN) {
+      return event;
+    }
+
+    if (role === Role.HOST && userId && event.hostId === userId) {
+      return event;
+    }
+
+    throw new ForbiddenException('Not authorized to manage this event content');
+  }
+
   async findByEvent(eventId: string, userId?: string, role?: Role) {
     await this.ensureCanView(eventId, userId, role);
 
@@ -62,8 +84,13 @@ export class EventContentService {
     });
   }
 
-  async create(eventId: string, dto: CreateEventContentDto) {
-    await this.ensureEventExists(eventId);
+  async create(
+    eventId: string,
+    dto: CreateEventContentDto,
+    userId?: string,
+    role?: Role,
+  ) {
+    await this.ensureCanManage(eventId, userId, role);
 
     if (dto.contentType === EventContentType.TEXT) {
       if (!dto.textContent?.trim()) {
@@ -89,7 +116,14 @@ export class EventContentService {
     return this.contentRepo.save(item);
   }
 
-  async update(eventId: string, id: string, dto: UpdateEventContentDto) {
+  async update(
+    eventId: string,
+    id: string,
+    dto: UpdateEventContentDto,
+    userId?: string,
+    role?: Role,
+  ) {
+    await this.ensureCanManage(eventId, userId, role);
     const item = await this.contentRepo.findOne({ where: { id, eventId } });
     if (!item) {
       throw new NotFoundException('Content item not found');
@@ -107,7 +141,13 @@ export class EventContentService {
     return this.contentRepo.save(item);
   }
 
-  async remove(eventId: string, id: string) {
+  async remove(
+    eventId: string,
+    id: string,
+    userId?: string,
+    role?: Role,
+  ) {
+    await this.ensureCanManage(eventId, userId, role);
     const item = await this.contentRepo.findOne({ where: { id, eventId } });
     if (!item) {
       throw new NotFoundException('Content item not found');

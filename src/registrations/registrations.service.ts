@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -9,7 +10,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
 import { Repository } from 'typeorm';
 import { PaymentStatus } from '../common/enums/payment-status.enum';
-import { isOnlineEventType } from '../common/utils/meeting.util';
+import { Role } from '../common/enums/role.enum';
+import { JwtPayload } from '../common/decorators/current-user.decorator';
+import {
+  formatInvoiceNumber,
+  formatTicketId,
+  isPaidRegistration,
+} from '../common/utils/invoice.util';
 import { EventRegistration } from '../entities/event-registration.entity';
 import { Event } from '../entities/event.entity';
 import { User } from '../entities/user.entity';
@@ -111,6 +118,49 @@ export class RegistrationsService {
       event,
       passUrl,
     );
+  }
+
+  private async sendInvoiceEmail(
+    registration: EventRegistration,
+    event: Event,
+  ) {
+    if (!isPaidRegistration(registration)) {
+      return;
+    }
+
+    await this.mailService.sendPaymentInvoice(registration, event, {
+      razorpayPaymentId: registration.razorpayPaymentId || registration.id,
+      amount:
+        registration.amountPaid != null ? Number(registration.amountPaid) : 0,
+    });
+  }
+
+  formatInvoice(registration: EventRegistration) {
+    const event = registration.event;
+    const amount =
+      registration.amountPaid != null ? Number(registration.amountPaid) : 0;
+
+    return {
+      id: registration.id,
+      invoiceNumber: formatInvoiceNumber(registration.id),
+      ticketId: formatTicketId(registration.id),
+      issuedAt: registration.createdAt,
+      attendeeName: registration.fullName,
+      attendeeEmail: registration.email,
+      attendeePhone: registration.phone,
+      eventId: registration.eventId,
+      eventTitle: event?.title ?? 'Event',
+      eventType: event?.type ?? null,
+      eventDate: event?.dateStart ?? null,
+      eventTime: event?.timeLabel ?? null,
+      venue: [event?.venue, event?.location].filter(Boolean).join(' — ') || null,
+      amount: Number.isFinite(amount) ? amount : 0,
+      currency: 'INR',
+      paymentStatus: registration.paymentStatus,
+      paymentRef: registration.razorpayPaymentId,
+      orderId: registration.razorpayOrderId,
+      passUrl: `${this.getFrontendUrl()}/pass/${registration.accessToken}`,
+    };
   }
 
   private async loadRegistration(id: string) {
@@ -262,6 +312,31 @@ export class RegistrationsService {
     return this.loadRegistration(saved.id);
   }
 
+  async findMyInvoices(userId: string) {
+    const rows = await this.registrationRepo.find({
+      where: { userId },
+      relations: ['event'],
+      order: { createdAt: 'DESC' },
+    });
+
+    return rows
+      .filter((row) => isPaidRegistration(row))
+      .map((row) => this.formatInvoice(row));
+  }
+
+  async findMyInvoice(userId: string, invoiceId: string) {
+    const registration = await this.registrationRepo.findOne({
+      where: { id: invoiceId, userId },
+      relations: ['event'],
+    });
+
+    if (!registration || !isPaidRegistration(registration)) {
+      throw new NotFoundException('Invoice not found');
+    }
+
+    return this.formatInvoice(registration);
+  }
+
   findMyRegistrations(userId: string) {
     return this.registrationRepo
       .find({
@@ -272,7 +347,26 @@ export class RegistrationsService {
       .then((rows) => rows.map((row) => this.formatRegistration(row)));
   }
 
-  findAll(eventId?: string) {
+  async findAll(eventId?: string, actor?: JwtPayload) {
+    if (actor?.role === Role.HOST) {
+      if (eventId) {
+        const event = await this.eventRepo.findOne({ where: { id: eventId } });
+        if (!event || event.hostId !== actor.sub) {
+          throw new ForbiddenException(
+            'Not authorized to view these registrations',
+          );
+        }
+      }
+
+      return this.registrationRepo
+        .find({
+          where: eventId ? { eventId } : { event: { hostId: actor.sub } },
+          relations: ['event', 'user'],
+          order: { createdAt: 'DESC' },
+        })
+        .then((rows) => rows.map((row) => this.formatRegistration(row)));
+    }
+
     return this.registrationRepo
       .find({
         where: eventId ? { eventId } : {},

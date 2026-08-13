@@ -1,12 +1,15 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Patch, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { AuthService } from './auth.service';
 import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decorator';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { CompleteOnboardingDto } from './dto/complete-onboarding.dto';
 import { GoogleAuthDto } from './dto/google-auth.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { SendOtpDto } from './dto/send-otp.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { VerifyLinkPhoneDto } from './dto/verify-link-phone.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 
 @Controller('auth')
@@ -47,6 +50,48 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser() user: JwtPayload) {
     return this.authService.getProfile(user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('me')
+  updateMe(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.authService.updateProfile(user.sub, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('me/password')
+  changePassword(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.authService.changePassword(user.sub, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('me/phone/send-otp')
+  sendLinkPhoneOtp(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: SendOtpDto,
+  ) {
+    return this.authService.sendLinkPhoneOtp(user.sub, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('me/phone/verify')
+  verifyLinkPhone(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: VerifyLinkPhoneDto,
+  ) {
+    return this.authService.verifyLinkPhone(user.sub, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('me/phone')
+  unlinkPhone(@CurrentUser() user: JwtPayload) {
+    return this.authService.unlinkPhone(user.sub);
   }
 
   @UseGuards(JwtAuthGuard)

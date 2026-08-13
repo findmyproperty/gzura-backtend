@@ -108,4 +108,20 @@ export class UpdateEventDto {
   @IsOptional()
   @IsEnum(EventStatus)
   status?: EventStatus;
+
+  @IsOptional()
+  @IsString()
+  rejectionReason?: string;
+
+  @IsOptional()
+  @IsString()
+  resubmissionComment?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  approvePendingChanges?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  rejectPendingChanges?: boolean;
 }

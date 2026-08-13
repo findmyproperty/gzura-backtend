@@ -48,11 +48,17 @@ export class User {
   @Column({ name: 'otp_expires_at', type: 'datetime', nullable: true })
   otpExpiresAt!: Date | null;
 
+  @Column({ name: 'pending_phone', type: 'varchar', nullable: true })
+  pendingPhone!: string | null;
+
   @Column({ type: 'varchar', nullable: true })
   city!: string | null;
 
   @Column({ type: 'varchar', nullable: true })
   profession!: string | null;
+
+  @Column({ name: 'avatar_url', type: 'varchar', length: 500, nullable: true })
+  avatarUrl!: string | null;
 
   @Column({ name: 'onboarding_goal', type: 'varchar', length: 50, nullable: true })
   onboardingGoal!: string | null;

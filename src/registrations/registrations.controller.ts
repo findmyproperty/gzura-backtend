@@ -55,11 +55,29 @@ export class RegistrationsController {
     return this.registrationsService.findMyRegistrations(user.sub);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Get('my/invoices')
+  findMyInvoices(@CurrentUser() user: JwtPayload) {
+    return this.registrationsService.findMyInvoices(user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('my/invoices/:id')
+  findMyInvoice(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+  ) {
+    return this.registrationsService.findMyInvoice(user.sub, id);
+  }
+
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.HOST)
   @Get()
-  findAll(@Query('eventId') eventId?: string) {
-    return this.registrationsService.findAll(eventId);
+  findAll(
+    @Query('eventId') eventId?: string,
+    @CurrentUser() user?: JwtPayload,
+  ) {
+    return this.registrationsService.findAll(eventId, user);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

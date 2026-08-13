@@ -64,7 +64,7 @@ export class UsersService {
     const user = this.userRepo.create({
       email,
       passwordHash,
-      firstName: firstName || 'Instructor',
+      firstName: firstName || 'Host',
       lastName,
       phone: registration.phone,
       profession: registration.profession,
@@ -122,7 +122,7 @@ export class UsersService {
     });
 
     if (!user) {
-      throw new NotFoundException('Instructor not found');
+      throw new NotFoundException('Host not found');
     }
 
     return user;
@@ -143,6 +143,7 @@ export class UsersService {
           phone: true,
           city: true,
           profession: true,
+          avatarUrl: true,
           createdAt: true,
           updatedAt: true,
         },
@@ -161,6 +162,7 @@ export class UsersService {
         phone: true,
         city: true,
         profession: true,
+        avatarUrl: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -171,6 +173,19 @@ export class UsersService {
     }
 
     return user;
+  }
+
+  async findActor(id: string) {
+    return this.userRepo.findOne({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+      },
+    });
   }
 
   async create(dto: CreateUserDto) {

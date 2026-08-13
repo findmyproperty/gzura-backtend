@@ -28,6 +28,17 @@ export class UploadsController {
     return this.uploadsService.saveEventThumbnail(file);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Post('profile-avatar')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  uploadProfileAvatar(@UploadedFile() file: Express.Multer.File) {
+    return this.uploadsService.saveEventThumbnail(file);
+  }
+
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.HOST)
   @Post('event-content')

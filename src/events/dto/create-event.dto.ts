@@ -102,4 +102,8 @@ export class CreateEventDto {
   @IsOptional()
   @IsEnum(EventStatus)
   status?: EventStatus;
+
+  @IsOptional()
+  @IsString()
+  rejectionReason?: string;
 }
