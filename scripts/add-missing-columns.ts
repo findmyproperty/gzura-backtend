@@ -40,6 +40,8 @@ async function main() {
   // Add missing columns to users
   await safeAddColumn('users', 'otp_code', 'VARCHAR(10) NULL');
   await safeAddColumn('users', 'otp_expires_at', 'DATETIME NULL');
+  await safeAddColumn('users', 'password_reset_token', 'VARCHAR(64) NULL');
+  await safeAddColumn('users', 'password_reset_expires_at', 'DATETIME NULL');
 
   console.log('Finished updating table schemas successfully!');
   await dataSource.destroy();

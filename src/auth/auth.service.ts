@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
+import { createHash, randomBytes } from 'crypto';
 import { google } from 'googleapis';
 import { In, Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
@@ -18,14 +19,16 @@ import {
 } from '../common/utils/phone.util';
 import { EventRegistration } from '../entities/event-registration.entity';
 import { User } from '../entities/user.entity';
+import { MailService } from '../integrations/mail.service';
+import { SmsService } from '../integrations/sms.service';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CompleteOnboardingDto } from './dto/complete-onboarding.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
-import { UpdateProfileDto } from './dto/update-profile.dto';
-
-import { SmsService } from '../integrations/sms.service';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SendOtpDto } from './dto/send-otp.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { VerifyLinkPhoneDto } from './dto/verify-link-phone.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 
@@ -39,6 +42,7 @@ export class AuthService {
     private jwtService: JwtService,
     private config: ConfigService,
     private smsService: SmsService,
+    private mailService: MailService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -480,10 +484,21 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
+    const isStaff = user.role === Role.ADMIN || user.role === Role.HOST;
+
     if (!user.passwordHash) {
-      throw new BadRequestException(
-        'Password is managed by your sign-in provider',
-      );
+      if (!isStaff) {
+        throw new BadRequestException(
+          'Password is managed by your sign-in provider',
+        );
+      }
+      user.passwordHash = await bcrypt.hash(dto.newPassword, 10);
+      await this.userRepo.save(user);
+      return { success: true };
+    }
+
+    if (!dto.currentPassword) {
+      throw new BadRequestException('Current password is required');
     }
 
     const valid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
@@ -495,6 +510,107 @@ export class AuthService {
     await this.userRepo.save(user);
 
     return { success: true };
+  }
+
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const genericResponse = {
+      message:
+        'If an account exists, we sent a reset link by email and SMS where those details are on file.',
+    };
+
+    const user = await this.findUserForPasswordReset(dto.identifier);
+    if (!user || user.status === UserStatus.BLOCKED) {
+      return genericResponse;
+    }
+
+    const rawToken = randomBytes(32).toString('hex');
+    user.passwordResetToken = this.hashResetToken(rawToken);
+    user.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    await this.userRepo.save(user);
+
+    const resetUrl = `${this.getFrontendUrl()}/reset-password?token=${rawToken}`;
+    const channels: string[] = [];
+
+    if (this.isDeliverableEmail(user.email)) {
+      const emailSent = await this.mailService.sendPasswordResetEmail({
+        email: user.email,
+        firstName: user.firstName,
+        resetUrl,
+      });
+      if (emailSent) channels.push('email');
+    }
+
+    if (user.phone) {
+      const smsSent = await this.smsService.sendMessage(
+        user.phone,
+        `GZURA: Reset your password (expires in 1 hour): ${resetUrl}`,
+      );
+      if (smsSent) channels.push('sms');
+    }
+
+    const isProduction = this.config.get<string>('NODE_ENV') === 'production';
+    if (!isProduction && channels.length === 0) {
+      return { ...genericResponse, devResetUrl: resetUrl };
+    }
+
+    return genericResponse;
+  }
+
+  async resetPassword(dto: ResetPasswordDto) {
+    const tokenHash = this.hashResetToken(dto.token);
+    const user = await this.userRepo.findOne({
+      where: { passwordResetToken: tokenHash },
+    });
+
+    if (
+      !user ||
+      !user.passwordResetExpiresAt ||
+      new Date() > new Date(user.passwordResetExpiresAt)
+    ) {
+      throw new BadRequestException(
+        'This reset link is invalid or has expired. Please request a new one.',
+      );
+    }
+
+    if (user.status === UserStatus.BLOCKED) {
+      throw new UnauthorizedException('Account is blocked');
+    }
+
+    user.passwordHash = await bcrypt.hash(dto.newPassword, 10);
+    user.passwordResetToken = null;
+    user.passwordResetExpiresAt = null;
+    await this.userRepo.save(user);
+
+    return { success: true, message: 'Password updated. You can sign in now.' };
+  }
+
+  private hashResetToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
+  private getFrontendUrl(): string {
+    const configured = this.config.get<string>('FRONTEND_URL')?.trim();
+    if (configured) return configured.replace(/\/$/, '');
+
+    const corsOrigin = this.config.get<string>('CORS_ORIGIN') || '';
+    const firstOrigin = corsOrigin.split(',').map((value) => value.trim())[0];
+    return (firstOrigin || 'http://localhost:3000').replace(/\/$/, '');
+  }
+
+  private isDeliverableEmail(email?: string | null): boolean {
+    return Boolean(email && !email.endsWith('@gzura.mobile'));
+  }
+
+  private async findUserForPasswordReset(identifier: string): Promise<User | null> {
+    if (identifier.includes('@')) {
+      return this.userRepo.findOne({
+        where: { email: identifier.toLowerCase() },
+      });
+    }
+
+    const normalized = normalizePhone(identifier);
+    if (!normalized) return null;
+    return this.findUserByPhone(normalized);
   }
 
   private requireNormalizedPhone(phone: string): string {

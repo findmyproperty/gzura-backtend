@@ -360,6 +360,64 @@ export class MailService {
     }
   }
 
+  async sendPasswordResetEmail(params: {
+    email: string;
+    firstName?: string;
+    resetUrl: string;
+  }): Promise<boolean> {
+    if (!this.transporter) {
+      this.logger.warn(
+        `Password reset email skipped: SMTP not configured. To: ${params.email} Link: ${params.resetUrl}`,
+      );
+      return false;
+    }
+
+    if (!params.email || params.email.endsWith('@gzura.mobile')) {
+      return false;
+    }
+
+    const safeName = escapeHtml(params.firstName || 'there');
+    const safeUrl = escapeHtml(params.resetUrl);
+
+    try {
+      await this.transporter.sendMail({
+        from: this.getFromHeader(),
+        to: params.email,
+        subject: 'Reset your GZURA password',
+        html: `
+          <div style="background:#f6f3f8;padding:32px 16px;font-family:Helvetica,Arial,sans-serif;color:#222">
+            <div style="max-width:600px;margin:auto;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.05)">
+              <div style="background:#2b0548;padding:24px 30px;color:#fff">
+                <div style="color:#d4a82c;font-weight:700;letter-spacing:1px;font-size:14px">GZURA</div>
+                <h1 style="margin:8px 0 0;font-size:22px">Reset your password</h1>
+              </div>
+              <div style="padding:30px">
+                <p>Hi <strong>${safeName}</strong>,</p>
+                <p>We received a request to reset the password for your GZURA account. Click the button below to choose a new password. This link expires in 1 hour.</p>
+                <div style="margin:28px 0;text-align:center">
+                  <a href="${safeUrl}" style="background:#2b0548;color:#ffffff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block">
+                    Reset password
+                  </a>
+                </div>
+                <p style="color:#666;font-size:13px;word-break:break-all">If the button does not work, copy and paste this link into your browser:<br/>${safeUrl}</p>
+                <p style="color:#666;font-size:13px;margin-top:24px">If you did not request this, you can ignore this email. Your password will stay the same.</p>
+                <p style="color:#666;font-size:14px;margin-top:30px">Best regards,<br>The GZURA Team</p>
+              </div>
+            </div>
+          </div>
+        `,
+      });
+      this.logger.log(`Password reset email sent to ${params.email}`);
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Failed to send password reset email to ${params.email}`,
+        error,
+      );
+      return false;
+    }
+  }
+
   async sendWelcomeEmail(user: { email: string; firstName?: string }) {
     if (!this.transporter || !user.email || user.email.endsWith('@gzura.mobile')) return;
 

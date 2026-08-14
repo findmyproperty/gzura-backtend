@@ -4,9 +4,11 @@ import { AuthService } from './auth.service';
 import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decorator';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CompleteOnboardingDto } from './dto/complete-onboarding.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { GoogleAuthDto } from './dto/google-auth.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SendOtpDto } from './dto/send-otp.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { VerifyLinkPhoneDto } from './dto/verify-link-phone.dto';
@@ -39,6 +41,16 @@ export class AuthController {
   @Post('google')
   googleLogin(@Body() dto: GoogleAuthDto) {
     return this.authService.loginWithGoogle(dto.credential);
+  }
+
+  @Post('forgot-password')
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @Post('reset-password')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
   }
 
   @Post('admin/login')

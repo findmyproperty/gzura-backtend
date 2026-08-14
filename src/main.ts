@@ -197,6 +197,39 @@ async function ensurePendingPhoneColumn(app: NestExpressApplication) {
   );
 }
 
+async function ensurePasswordResetColumns(app: NestExpressApplication) {
+  const dataSource = app.get(DataSource);
+  const columns = [
+    {
+      name: 'password_reset_token',
+      sql: 'VARCHAR(64) NULL AFTER `pending_phone`',
+    },
+    {
+      name: 'password_reset_expires_at',
+      sql: 'DATETIME NULL AFTER `password_reset_token`',
+    },
+  ];
+
+  for (const column of columns) {
+    const rows = await dataSource.query(
+      `
+        SELECT COUNT(*) AS count
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'users'
+          AND column_name = ?
+      `,
+      [column.name],
+    );
+
+    if (Number(rows?.[0]?.count ?? 0) === 0) {
+      await dataSource.query(
+        `ALTER TABLE users ADD COLUMN ${column.name} ${column.sql}`,
+      );
+    }
+  }
+}
+
 async function ensureRejectionReasonColumn(app: NestExpressApplication) {
   const dataSource = app.get(DataSource);
   const rows = await dataSource.query(
@@ -371,6 +404,7 @@ async function bootstrap() {
   await ensureUserAvatarColumn(app);
   await ensureUserOtpColumns(app);
   await ensurePendingPhoneColumn(app);
+  await ensurePasswordResetColumns(app);
   await ensureCommunityPreferredColumns(app);
 
   const port = 8001;

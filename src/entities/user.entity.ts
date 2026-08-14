@@ -51,6 +51,12 @@ export class User {
   @Column({ name: 'pending_phone', type: 'varchar', nullable: true })
   pendingPhone!: string | null;
 
+  @Column({ name: 'password_reset_token', type: 'varchar', length: 64, nullable: true })
+  passwordResetToken!: string | null;
+
+  @Column({ name: 'password_reset_expires_at', type: 'datetime', nullable: true })
+  passwordResetExpiresAt!: Date | null;
+
   @Column({ type: 'varchar', nullable: true })
   city!: string | null;
 

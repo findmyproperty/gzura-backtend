@@ -66,6 +66,40 @@ export class SmsService {
     }
   }
 
+  async sendMessage(phone: string, body: string): Promise<boolean> {
+    const formattedPhone = this.formatE164Phone(phone);
+    const accountSid = this.config.get<string>('TWILIO_ACCOUNT_SID');
+    const authToken = this.config.get<string>('TWILIO_AUTH_TOKEN');
+    const from = this.config.get<string>('TWILIO_PHONE_NUMBER');
+    const messagingServiceSid = this.config.get<string>(
+      'TWILIO_MESSAGING_SERVICE_SID',
+    );
+
+    if (!accountSid || !authToken || (!from && !messagingServiceSid)) {
+      this.logger.warn(
+        `Twilio SMS not configured (need TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER or TWILIO_MESSAGING_SERVICE_SID). Phone: ${formattedPhone}. Message: ${body}`,
+      );
+      return false;
+    }
+
+    try {
+      const client = new Twilio(accountSid, authToken);
+      const message = await client.messages.create({
+        to: formattedPhone,
+        body,
+        ...(messagingServiceSid ? { messagingServiceSid } : { from }),
+      });
+      this.logger.log(
+        `SMS sent to ${formattedPhone}. SID: ${message.sid} Status: ${message.status}`,
+      );
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown Twilio error';
+      this.logger.error(`Failed to send SMS to ${formattedPhone}: ${message}`);
+      return false;
+    }
+  }
+
   async verifyOtp(phone: string, otpCode: string): Promise<boolean> {
     const formattedPhone = this.formatE164Phone(phone);
     const fallbackOtp = this.getFallbackOtp();
