@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import nodemailer, { Transporter } from 'nodemailer';
+import { Resend } from 'resend';
 import { Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import { CommunityRegistration } from '../entities/community-registration.entity';
@@ -22,35 +22,46 @@ function escapeHtml(value: string | null | undefined): string {
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
-  private readonly transporter: Transporter | null;
+  private readonly resend: Resend | null;
 
   constructor(
     private readonly config: ConfigService,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
   ) {
-    const host = this.config.get<string>('SMTP_HOST');
-    const user = this.config.get<string>('SMTP_USER');
-    const pass = this.config.get<string>('SMTP_PASSWORD');
-
-    this.transporter =
-      host && user && pass
-        ? nodemailer.createTransport({
-          host,
-          port: Number(this.config.get<string>('SMTP_PORT') || 587),
-          secure:
-            this.config.get<string>('SMTP_SECURE')?.toLowerCase() === 'true',
-          auth: { user, pass },
-        })
-        : null;
+    const apiKey = this.config.get<string>('RESEND_API_KEY');
+    this.resend = apiKey ? new Resend(apiKey) : null;
   }
 
-  private getFromHeader(): string {
-    return (
-      this.config.get<string>('MAIL_FROM') ||
-      this.config.get<string>('SMTP_USER') ||
-      'GZURA <noreply@gzura.com>'
-    );
+  private async sendEmail(params: {
+    to: string | string[];
+    subject: string;
+    html: string;
+  }): Promise<boolean> {
+    const from = this.config.get<string>('MAIL_FROM')?.trim();
+    if (!this.resend || !from) {
+      this.logger.warn('Email skipped: RESEND_API_KEY or MAIL_FROM is not configured');
+      return false;
+    }
+
+    try {
+      const { data, error } = await this.resend.emails.send({
+        from,
+        to: params.to,
+        subject: params.subject,
+        html: params.html,
+      });
+      if (error) {
+        this.logger.error(`Failed to send email: ${error.message}`);
+        return false;
+      }
+
+      this.logger.log(`Email sent: ${data?.id ?? 'unknown message ID'}`);
+      return true;
+    } catch (error) {
+      this.logger.error('Failed to send email due to a network error', error);
+      return false;
+    }
   }
 
   private async getAdminEmails(): Promise<string[]> {
@@ -90,8 +101,8 @@ export class MailService {
     event: Event,
     passUrl: string,
   ) {
-    if (!this.transporter) {
-      this.logger.warn('Enrollment email skipped: SMTP not configured');
+    if (!this.resend) {
+      this.logger.warn('Enrollment email skipped: Resend is not configured');
       return;
     }
 
@@ -110,8 +121,7 @@ export class MailService {
     const safePassUrl = escapeHtml(passUrl);
 
     try {
-      await this.transporter.sendMail({
-        from: this.getFromHeader(),
+      await this.sendEmail({
         to: registration.email,
         subject: `Enrollment Confirmed: ${event.title}`,
         html: `
@@ -156,7 +166,7 @@ export class MailService {
     event: Event,
     paymentDetails: { razorpayPaymentId: string; amount: number },
   ) {
-    if (!this.transporter) return;
+    if (!this.resend) return;
 
     const safeName = escapeHtml(registration.fullName || 'Learner');
     const safeTitle = escapeHtml(event.title);
@@ -164,8 +174,7 @@ export class MailService {
     const invoiceNo = `INV-${registration.id.slice(0, 8).toUpperCase()}`;
 
     try {
-      await this.transporter.sendMail({
-        from: this.getFromHeader(),
+      await this.sendEmail({
         to: registration.email,
         subject: `Payment Invoice - ${event.title} (${invoiceNo})`,
         html: `
@@ -215,11 +224,10 @@ export class MailService {
   }
 
   async sendEventApprovedNotice(event: Event, hostEmail: string) {
-    if (!this.transporter || !hostEmail) return;
+    if (!this.resend || !hostEmail) return;
 
     try {
-      await this.transporter.sendMail({
-        from: this.getFromHeader(),
+      await this.sendEmail({
         to: hostEmail,
         subject: `Your Event Has Been Approved: ${event.title}`,
         html: `
@@ -242,11 +250,10 @@ export class MailService {
   }
 
   async sendEventRejectedNotice(event: Event, hostEmail: string, reason: string) {
-    if (!this.transporter || !hostEmail) return;
+    if (!this.resend || !hostEmail) return;
 
     try {
-      await this.transporter.sendMail({
-        from: this.getFromHeader(),
+      await this.sendEmail({
         to: hostEmail,
         subject: `Update on Your Event Submission: ${event.title}`,
         html: `
@@ -275,7 +282,7 @@ export class MailService {
   }
 
   async sendEventSubmissionNoticeToAdmin(event: Event, hostName: string) {
-    if (!this.transporter) return;
+    if (!this.resend) return;
 
     const adminEmails = await this.getAdminEmails();
     if (!adminEmails.length) {
@@ -284,8 +291,7 @@ export class MailService {
     }
 
     try {
-      await this.transporter.sendMail({
-        from: this.getFromHeader(),
+      await this.sendEmail({
         to: adminEmails,
         subject: `New Event Approval Pending: ${event.title}`,
         html: `
@@ -313,11 +319,10 @@ export class MailService {
   }
 
   async sendHostApplicationReceived(registration: CommunityRegistration) {
-    if (!this.transporter) return;
+    if (!this.resend) return;
 
     try {
-      await this.transporter.sendMail({
-        from: this.getFromHeader(),
+      await this.sendEmail({
         to: registration.email,
         subject: `Host Application Received - GZURA`,
         html: `
@@ -346,7 +351,7 @@ export class MailService {
   }
 
   async sendHostApplicationAdminAlert(registration: CommunityRegistration) {
-    if (!this.transporter) return;
+    if (!this.resend) return;
 
     const adminEmails = await this.getAdminEmails();
     if (!adminEmails.length) {
@@ -355,8 +360,7 @@ export class MailService {
     }
 
     try {
-      await this.transporter.sendMail({
-        from: this.getFromHeader(),
+      await this.sendEmail({
         to: adminEmails,
         subject: `New Host Application: ${registration.fullName}`,
         html: `
@@ -393,9 +397,9 @@ export class MailService {
     firstName?: string;
     resetUrl: string;
   }): Promise<boolean> {
-    if (!this.transporter) {
+    if (!this.resend) {
       this.logger.warn(
-        `Password reset email skipped: SMTP not configured. To: ${params.email} Link: ${params.resetUrl}`,
+        `Password reset email skipped: Resend is not configured. To: ${params.email} Link: ${params.resetUrl}`,
       );
       return false;
     }
@@ -408,8 +412,7 @@ export class MailService {
     const safeUrl = escapeHtml(params.resetUrl);
 
     try {
-      await this.transporter.sendMail({
-        from: this.getFromHeader(),
+      const sent = await this.sendEmail({
         to: params.email,
         subject: 'Reset your GZURA password',
         html: `
@@ -435,8 +438,8 @@ export class MailService {
           </div>
         `,
       });
-      this.logger.log(`Password reset email sent to ${params.email}`);
-      return true;
+      if (sent) this.logger.log(`Password reset email sent to ${params.email}`);
+      return sent;
     } catch (error) {
       this.logger.error(
         `Failed to send password reset email to ${params.email}`,
@@ -447,11 +450,10 @@ export class MailService {
   }
 
   async sendWelcomeEmail(user: { email: string; firstName?: string }) {
-    if (!this.transporter || !user.email || user.email.endsWith('@gzura.mobile')) return;
+    if (!this.resend || !user.email || user.email.endsWith('@gzura.mobile')) return;
 
     try {
-      await this.transporter.sendMail({
-        from: this.getFromHeader(),
+      await this.sendEmail({
         to: user.email,
         subject: `Welcome to GZURA, ${user.firstName || 'Member'}!`,
         html: `
