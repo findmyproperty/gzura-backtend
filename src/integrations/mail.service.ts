@@ -1,9 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
 import nodemailer, { Transporter } from 'nodemailer';
+import { Repository } from 'typeorm';
+import { Role } from '../common/enums/role.enum';
 import { CommunityRegistration } from '../entities/community-registration.entity';
 import { EventRegistration } from '../entities/event-registration.entity';
 import { Event } from '../entities/event.entity';
+import { User } from '../entities/user.entity';
 
 function escapeHtml(value: string | null | undefined): string {
   if (!value) return '';
@@ -20,7 +24,11 @@ export class MailService {
   private readonly logger = new Logger(MailService.name);
   private readonly transporter: Transporter | null;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
+  ) {
     const host = this.config.get<string>('SMTP_HOST');
     const user = this.config.get<string>('SMTP_USER');
     const pass = this.config.get<string>('SMTP_PASSWORD');
@@ -45,12 +53,24 @@ export class MailService {
     );
   }
 
-  private getAdminEmail(): string {
-    return (
-      this.config.get<string>('ADMIN_EMAIL') ||
-      this.config.get<string>('MAIL_FROM') ||
-      this.config.get<string>('SMTP_USER') ||
-      'admin@gzura.com'
+  private async getAdminEmails(): Promise<string[]> {
+    const admins = await this.userRepo.find({
+      where: { role: Role.ADMIN },
+      select: { email: true },
+    });
+    const devAdminEmail = this.config.get<string>('DEV_ADMIN_EMAIL')?.trim();
+    const emails = [
+      ...admins.map((admin) => admin.email),
+      ...(devAdminEmail ? [devAdminEmail] : []),
+    ];
+
+    return Array.from(
+      new Map(
+        emails
+          .map((email) => email.trim())
+          .filter(Boolean)
+          .map((email) => [email.toLowerCase(), email]),
+      ).values(),
     );
   }
 
@@ -257,12 +277,16 @@ export class MailService {
   async sendEventSubmissionNoticeToAdmin(event: Event, hostName: string) {
     if (!this.transporter) return;
 
-    const adminEmail = this.getAdminEmail();
+    const adminEmails = await this.getAdminEmails();
+    if (!adminEmails.length) {
+      this.logger.warn('Event submission alert skipped: no admin recipients configured');
+      return;
+    }
 
     try {
       await this.transporter.sendMail({
         from: this.getFromHeader(),
-        to: adminEmail,
+        to: adminEmails,
         subject: `New Event Approval Pending: ${event.title}`,
         html: `
           <div style="background:#f6f3f8;padding:32px 16px;font-family:Helvetica,Arial,sans-serif;color:#222">
@@ -324,12 +348,16 @@ export class MailService {
   async sendHostApplicationAdminAlert(registration: CommunityRegistration) {
     if (!this.transporter) return;
 
-    const adminEmail = this.getAdminEmail();
+    const adminEmails = await this.getAdminEmails();
+    if (!adminEmails.length) {
+      this.logger.warn('Host application alert skipped: no admin recipients configured');
+      return;
+    }
 
     try {
       await this.transporter.sendMail({
         from: this.getFromHeader(),
-        to: adminEmail,
+        to: adminEmails,
         subject: `New Host Application: ${registration.fullName}`,
         html: `
           <div style="background:#f6f3f8;padding:32px 16px;font-family:Helvetica,Arial,sans-serif;color:#222">

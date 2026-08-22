@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CommunityRegistration } from '../entities/community-registration.entity';
+import { User } from '../entities/user.entity';
 import { UsersModule } from '../users/users.module';
 import { CommunityRegistrationsController } from './community-registrations.controller';
 import { CommunityRegistrationsService } from './community-registrations.service';
@@ -8,7 +9,7 @@ import { CommunityRegistrationsService } from './community-registrations.service
 import { MailService } from '../integrations/mail.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([CommunityRegistration]), UsersModule],
+  imports: [TypeOrmModule.forFeature([CommunityRegistration, User]), UsersModule],
   controllers: [CommunityRegistrationsController],
   providers: [CommunityRegistrationsService, MailService],
 })
