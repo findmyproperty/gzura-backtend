@@ -408,6 +408,7 @@ export class RegistrationsService {
       message: registration.checkedInAt ? 'Checked in' : 'Enrolled',
       attendee: {
         id: registration.id,
+        eventId: registration.eventId,
         fullName: registration.fullName,
         email: registration.email,
         eventTitle: registration.event.title,
@@ -421,7 +422,11 @@ export class RegistrationsService {
     };
   }
 
-  async checkInPass(accessToken: string) {
+  async checkInPass(
+    accessToken: string,
+    actor?: JwtPayload | null,
+    expectedEventId?: string,
+  ) {
     const registration = await this.registrationRepo.findOne({
       where: { accessToken },
       relations: ['event'],
@@ -439,27 +444,53 @@ export class RegistrationsService {
       return {
         valid: false,
         status: 'invalid' as const,
-        message: 'Not a valid pass',
+        message: 'QR check-in is only for offline events',
       };
     }
 
-    if (!registration.checkedInAt) {
+    if (
+      actor?.role === Role.HOST &&
+      registration.event.hostId !== actor.sub
+    ) {
+      return {
+        valid: false,
+        status: 'invalid' as const,
+        message: 'This pass does not belong to your event',
+      };
+    }
+
+    if (expectedEventId && registration.eventId !== expectedEventId) {
+      return {
+        valid: false,
+        status: 'invalid' as const,
+        message: `This pass is for ${registration.event.title}, not the selected event`,
+      };
+    }
+
+    const alreadyPresent = Boolean(registration.checkedInAt);
+    if (!alreadyPresent) {
       registration.checkedInAt = new Date();
       await this.registrationRepo.save(registration);
     }
 
     return {
       valid: true,
-      status: 'checked_in' as const,
-      message: 'Enrolled — checked in successfully',
+      status: alreadyPresent
+        ? ('already_checked_in' as const)
+        : ('checked_in' as const),
+      message: alreadyPresent
+        ? 'Already marked present'
+        : 'Attendance marked',
       attendee: {
+        id: registration.id,
+        eventId: registration.eventId,
         fullName: registration.fullName,
         email: registration.email,
         eventTitle: registration.event.title,
         venue: registration.event.venue ?? registration.event.location,
         eventDate: registration.event.dateStart,
       },
-      checkedInAt: registration.checkedInAt.toISOString(),
+      checkedInAt: registration.checkedInAt!.toISOString(),
     };
   }
 

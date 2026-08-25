@@ -43,10 +43,14 @@ export class RegistrationsController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.HOST)
   @Post('check-in')
-  checkIn(@Body() dto: ValidatePassDto) {
-    return this.registrationsService.checkInPass(dto.accessToken);
+  checkIn(@Body() dto: ValidatePassDto, @CurrentUser() user: JwtPayload) {
+    return this.registrationsService.checkInPass(
+      dto.accessToken,
+      user,
+      dto.eventId,
+    );
   }
 
   @UseGuards(JwtAuthGuard)

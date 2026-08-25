@@ -885,7 +885,7 @@ export class EventsService {
     return this.persistAndMap(event);
   }
 
-  async approveEvent(id: string) {
+  async approveEvent(id: string, actor?: JwtPayload | null) {
     const event = await this.eventRepo.findOne({
       where: { id },
       relations: ['host'],
@@ -894,9 +894,29 @@ export class EventsService {
       throw new NotFoundException('Event not found');
     }
 
+    if (event.pendingChanges?.status === 'PENDING' && event.pendingChanges.payload) {
+      const pendingDto = event.pendingChanges.payload as UpdateEventDto;
+      await this.applyUpdateDto(event, {
+        ...pendingDto,
+        status: EventStatus.PUBLISHED,
+      });
+      event.status = EventStatus.PUBLISHED;
+      event.pendingChanges = null;
+      event.rejectionReason = null;
+      const saved = await this.eventRepo.save(event);
+      await this.addActivityLog(
+        saved.id,
+        EventActivityAction.CHANGES_APPROVED,
+        actor,
+        'Approved host edits and published the updates',
+      );
+      return this.findOne(saved.id, false);
+    }
+
     event.status = EventStatus.PUBLISHED;
     event.rejectionReason = null;
     const saved = await this.eventRepo.save(event);
+    await this.addActivityLog(saved.id, EventActivityAction.APPROVED, actor);
 
     const hostEmail = event.host?.email;
     if (hostEmail) {
@@ -906,7 +926,7 @@ export class EventsService {
     return this.findOne(saved.id, false);
   }
 
-  async rejectEvent(id: string, reason: string) {
+  async rejectEvent(id: string, reason: string, actor?: JwtPayload | null) {
     const event = await this.eventRepo.findOne({
       where: { id },
       relations: ['host'],
@@ -919,13 +939,33 @@ export class EventsService {
       throw new BadRequestException('Rejection reason comment is required');
     }
 
+    const trimmed = reason.trim();
+
+    if (event.pendingChanges?.status === 'PENDING' && event.pendingChanges.payload) {
+      event.pendingChanges = {
+        ...event.pendingChanges,
+        status: 'REJECTED',
+        rejectionReason: trimmed,
+      };
+      event.status = EventStatus.PUBLISHED;
+      const saved = await this.eventRepo.save(event);
+      await this.addActivityLog(
+        saved.id,
+        EventActivityAction.CHANGES_REJECTED,
+        actor,
+        trimmed,
+      );
+      return this.findOne(saved.id, false);
+    }
+
     event.status = EventStatus.REJECTED;
-    event.rejectionReason = reason.trim();
+    event.rejectionReason = trimmed;
     const saved = await this.eventRepo.save(event);
+    await this.addActivityLog(saved.id, EventActivityAction.REJECTED, actor, trimmed);
 
     const hostEmail = event.host?.email;
     if (hostEmail) {
-      await this.mailService.sendEventRejectedNotice(saved, hostEmail, reason.trim());
+      await this.mailService.sendEventRejectedNotice(saved, hostEmail, trimmed);
     }
 
     return this.findOne(saved.id, false);

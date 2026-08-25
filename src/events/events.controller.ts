@@ -102,15 +102,19 @@ export class EventsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @Patch(':id/approve')
-  approve(@Param('id') id: string) {
-    return this.eventsService.approveEvent(id);
+  approve(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.eventsService.approveEvent(id, user);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @Patch(':id/reject')
-  reject(@Param('id') id: string, @Body('reason') reason: string) {
-    return this.eventsService.rejectEvent(id, reason);
+  reject(
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.eventsService.rejectEvent(id, reason, user);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
