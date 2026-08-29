@@ -120,6 +120,10 @@ export class RoleRequestsService {
     }
     if (user.role !== Role.ADMIN) {
       user.role = Role.HOST;
+      user.canHost = true;
+      await this.userRepo.save(user);
+    } else {
+      user.canHost = true;
       await this.userRepo.save(user);
     }
 

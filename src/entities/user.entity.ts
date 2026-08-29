@@ -27,6 +27,9 @@ export class User {
   @Column({ type: 'enum', enum: Role, default: Role.MEMBER })
   role!: Role;
 
+  @Column({ name: 'can_host', type: 'boolean', default: false })
+  canHost!: boolean;
+
   @Column({ type: 'enum', enum: UserStatus, default: UserStatus.ACTIVE })
   status!: UserStatus;
 

@@ -54,6 +54,7 @@ export class UsersService {
       if (existing.role !== Role.ADMIN) {
         existing.role = Role.HOST;
       }
+      existing.canHost = true;
       existing.status = UserStatus.ACTIVE;
       existing.firstName = firstName || existing.firstName;
       existing.lastName = lastName || existing.lastName;
@@ -73,6 +74,7 @@ export class UsersService {
       phone: registration.phone,
       profession: registration.profession,
       role: Role.HOST,
+      canHost: true,
       status: UserStatus.ACTIVE,
     });
 
@@ -212,6 +214,7 @@ export class UsersService {
       city: dto.city ?? null,
       profession: dto.profession ?? null,
       role: dto.role ?? Role.MEMBER,
+      canHost: dto.role === Role.HOST || dto.role === Role.ADMIN,
       status: dto.status ?? UserStatus.ACTIVE,
     });
 
@@ -245,7 +248,14 @@ export class UsersService {
     if (dto.phone !== undefined) user.phone = dto.phone || null;
     if (dto.city !== undefined) user.city = dto.city || null;
     if (dto.profession !== undefined) user.profession = dto.profession || null;
-    if (dto.role !== undefined) user.role = dto.role;
+    if (dto.role !== undefined) {
+      user.role = dto.role;
+      if (dto.role === Role.HOST || dto.role === Role.ADMIN) {
+        user.canHost = true;
+      } else if (dto.role === Role.MEMBER) {
+        user.canHost = false;
+      }
+    }
     if (dto.status !== undefined) user.status = dto.status;
 
     const saved = await this.userRepo.save(user);

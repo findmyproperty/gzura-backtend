@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -28,6 +29,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SendOtpDto } from './dto/send-otp.dto';
+import { SwitchRoleDto } from './dto/switch-role.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { VerifyLinkPhoneDto } from './dto/verify-link-phone.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
@@ -123,6 +125,7 @@ export class AuthService {
         id: true,
         email: true,
         role: true,
+        canHost: true,
         firstName: true,
         lastName: true,
         phone: true,
@@ -155,6 +158,44 @@ export class AuthService {
       throw new UnauthorizedException('Account is blocked');
     }
 
+    return this.buildAuthResponse(user);
+  }
+
+  async switchWorkspaceRole(userId: string, dto: SwitchRoleDto) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (user.status === UserStatus.BLOCKED) {
+      throw new UnauthorizedException('Account is blocked');
+    }
+
+    if (user.role === Role.ADMIN) {
+      throw new ForbiddenException('Admin accounts cannot switch workspaces');
+    }
+
+    if (dto.role === user.role) {
+      return this.buildAuthResponse(user);
+    }
+
+    if (dto.role === Role.HOST) {
+      if (!user.canHost) {
+        throw new ForbiddenException(
+          'Host access has not been approved for this account',
+        );
+      }
+      user.role = Role.HOST;
+    } else {
+      if (user.role !== Role.HOST) {
+        throw new ForbiddenException('Only hosts can switch to the member workspace');
+      }
+      user.role = Role.MEMBER;
+      user.canHost = true;
+    }
+
+    await this.userRepo.save(user);
     return this.buildAuthResponse(user);
   }
 
@@ -704,6 +745,7 @@ export class AuthService {
     id: string;
     email: string;
     role: Role;
+    canHost?: boolean;
     firstName: string;
     lastName: string;
     phone?: string | null;
@@ -720,6 +762,7 @@ export class AuthService {
       id: user.id,
       email: user.email,
       role: user.role,
+      canHost: Boolean(user.canHost) || user.role === Role.HOST || user.role === Role.ADMIN,
       firstName: user.firstName,
       lastName: user.lastName,
       phone: user.phone ?? null,
@@ -740,6 +783,7 @@ export class AuthService {
     id: string;
     email: string;
     role: Role;
+    canHost?: boolean;
     firstName: string;
     lastName: string;
     phone?: string | null;

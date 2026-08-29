@@ -482,32 +482,14 @@ export class MailService {
     }
   }
 
-  private getFromHeader(): string {
-    return (
-      this.config.get<string>('MAIL_FROM') ||
-      this.config.get<string>('SMTP_USER') ||
-      'GZURA <noreply@gzura.com>'
-    );
-  }
-
-  private getAdminEmail(): string {
-    return (
-      this.config.get<string>('ADMIN_EMAIL') ||
-      this.config.get<string>('MAIL_FROM') ||
-      this.config.get<string>('SMTP_USER') ||
-      'admin@gzura.com'
-    );
-  }
-
   async sendRoleRequestReceived(
     user: { email: string; firstName?: string; lastName?: string },
     request: { message?: string | null },
   ) {
-    if (!this.transporter || !user.email || user.email.endsWith('@gzura.mobile')) return;
+    if (!this.resend || !user.email || user.email.endsWith('@gzura.mobile')) return;
 
     try {
-      await this.transporter.sendMail({
-        from: this.getFromHeader(),
+      await this.sendEmail({
         to: user.email,
         subject: 'Host role request received - GZURA',
         html: `
@@ -538,15 +520,19 @@ export class MailService {
     user: { email: string; firstName?: string; lastName?: string },
     request: { message?: string | null },
   ) {
-    if (!this.transporter) return;
+    if (!this.resend) return;
 
-    const adminEmail = this.getAdminEmail();
+    const adminEmails = await this.getAdminEmails();
+    if (!adminEmails.length) {
+      this.logger.warn('Role request alert skipped: no admin recipients configured');
+      return;
+    }
+
     const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
 
     try {
-      await this.transporter.sendMail({
-        from: this.getFromHeader(),
-        to: adminEmail,
+      await this.sendEmail({
+        to: adminEmails,
         subject: `Member host request: ${fullName}`,
         html: `
           <div style="background:#f6f3f8;padding:32px 16px;font-family:Helvetica,Arial,sans-serif;color:#222">
@@ -573,13 +559,12 @@ export class MailService {
   }
 
   async sendRoleRequestApproved(user: { email: string; firstName?: string }) {
-    if (!this.transporter || !user.email || user.email.endsWith('@gzura.mobile')) return;
+    if (!this.resend || !user.email || user.email.endsWith('@gzura.mobile')) return;
 
     const origin = this.config.get<string>('CORS_ORIGIN') || 'http://localhost:3001';
 
     try {
-      await this.transporter.sendMail({
-        from: this.getFromHeader(),
+      await this.sendEmail({
         to: user.email,
         subject: 'You are now a GZURA host',
         html: `
@@ -608,11 +593,10 @@ export class MailService {
     user: { email: string; firstName?: string },
     request: { adminNote?: string | null },
   ) {
-    if (!this.transporter || !user.email || user.email.endsWith('@gzura.mobile')) return;
+    if (!this.resend || !user.email || user.email.endsWith('@gzura.mobile')) return;
 
     try {
-      await this.transporter.sendMail({
-        from: this.getFromHeader(),
+      await this.sendEmail({
         to: user.email,
         subject: 'Update on your GZURA host request',
         html: `
