@@ -59,6 +59,12 @@ export class AuthController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post('refresh')
+  refresh(@CurrentUser() user: JwtPayload) {
+    return this.authService.refreshSession(user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('me')
   me(@CurrentUser() user: JwtPayload) {
     return this.authService.getProfile(user.sub);

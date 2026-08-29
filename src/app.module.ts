@@ -12,6 +12,7 @@ import { GeocodingModule } from './geocoding/geocoding.module';
 import { HealthModule } from './health/health.module';
 import { PaymentsModule } from './payments/payments.module';
 import { RegistrationsModule } from './registrations/registrations.module';
+import { RoleRequestsModule } from './role-requests/role-requests.module';
 import { UsersModule } from './users/users.module';
 import { UploadsModule } from './uploads/uploads.module';
 
@@ -31,6 +32,7 @@ import { UploadsModule } from './uploads/uploads.module';
     RegistrationsModule,
     PaymentsModule,
     CommunityRegistrationsModule,
+    RoleRequestsModule,
     UsersModule,
     ContactModule,
     UploadsModule,
