@@ -122,4 +122,161 @@ export class MailService {
       );
     }
   }
+
+  private getFromHeader(): string {
+    return (
+      this.config.get<string>('MAIL_FROM') ||
+      this.config.get<string>('SMTP_USER') ||
+      'GZURA <noreply@gzura.com>'
+    );
+  }
+
+  private getAdminEmail(): string {
+    return (
+      this.config.get<string>('ADMIN_EMAIL') ||
+      this.config.get<string>('MAIL_FROM') ||
+      this.config.get<string>('SMTP_USER') ||
+      'admin@gzura.com'
+    );
+  }
+
+  async sendRoleRequestReceived(
+    user: { email: string; firstName?: string; lastName?: string },
+    request: { message?: string | null },
+  ) {
+    if (!this.transporter || !user.email || user.email.endsWith('@gzura.mobile')) return;
+
+    try {
+      await this.transporter.sendMail({
+        from: this.getFromHeader(),
+        to: user.email,
+        subject: 'Host role request received - GZURA',
+        html: `
+          <div style="background:#f6f3f8;padding:32px 16px;font-family:Helvetica,Arial,sans-serif;color:#222">
+            <div style="max-width:600px;margin:auto;background:#fff;border-radius:14px;overflow:hidden">
+              <div style="background:#2b0548;padding:24px 30px;color:#fff">
+                <h1 style="margin:0;font-size:22px">Request received</h1>
+              </div>
+              <div style="padding:30px">
+                <p>Hi <strong>${escapeHtml(user.firstName || 'there')}</strong>,</p>
+                <p>We received your request to become a GZURA host. Our team will review it and email you when there is a decision.</p>
+                ${
+                  request.message
+                    ? `<div style="margin:20px 0;padding:16px;background:#f8f6fa;border-radius:8px"><strong>Your message:</strong><br/>${escapeHtml(request.message)}</div>`
+                    : ''
+                }
+              </div>
+            </div>
+          </div>
+        `,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to send role request confirmation to ${user.email}`, error);
+    }
+  }
+
+  async sendRoleRequestAdminAlert(
+    user: { email: string; firstName?: string; lastName?: string },
+    request: { message?: string | null },
+  ) {
+    if (!this.transporter) return;
+
+    const adminEmail = this.getAdminEmail();
+    const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
+
+    try {
+      await this.transporter.sendMail({
+        from: this.getFromHeader(),
+        to: adminEmail,
+        subject: `Member host request: ${fullName}`,
+        html: `
+          <div style="background:#f6f3f8;padding:32px 16px;font-family:Helvetica,Arial,sans-serif;color:#222">
+            <div style="max-width:600px;margin:auto;background:#fff;border-radius:14px;overflow:hidden">
+              <div style="background:#2b0548;padding:24px 30px;color:#fff">
+                <h1 style="margin:0;font-size:20px">Member host request</h1>
+              </div>
+              <div style="padding:30px">
+                <p>A logged-in member asked to become a host:</p>
+                <div style="margin:20px 0;padding:16px;background:#f8f6fa;border-radius:8px;line-height:1.7">
+                  <div><strong>Name:</strong> ${escapeHtml(fullName)}</div>
+                  <div><strong>Email:</strong> ${escapeHtml(user.email)}</div>
+                  <div><strong>Message:</strong> ${escapeHtml(request.message || 'N/A')}</div>
+                </div>
+                <p>Log in to Admin Console &gt; Role Requests to approve or reject.</p>
+              </div>
+            </div>
+          </div>
+        `,
+      });
+    } catch (error) {
+      this.logger.error('Failed to send role request alert to admin', error);
+    }
+  }
+
+  async sendRoleRequestApproved(user: { email: string; firstName?: string }) {
+    if (!this.transporter || !user.email || user.email.endsWith('@gzura.mobile')) return;
+
+    const origin = this.config.get<string>('CORS_ORIGIN') || 'http://localhost:3001';
+
+    try {
+      await this.transporter.sendMail({
+        from: this.getFromHeader(),
+        to: user.email,
+        subject: 'You are now a GZURA host',
+        html: `
+          <div style="background:#f6f3f8;padding:32px 16px;font-family:Helvetica,Arial,sans-serif;color:#222">
+            <div style="max-width:600px;margin:auto;background:#fff;border-radius:14px;overflow:hidden">
+              <div style="background:#2b0548;padding:24px 30px;color:#fff">
+                <h1 style="margin:0;font-size:22px">Request approved</h1>
+              </div>
+              <div style="padding:30px">
+                <p>Hi <strong>${escapeHtml(user.firstName || 'there')}</strong>,</p>
+                <p>Your request to become a host was approved. Sign in again or refresh your session to open the host workspace.</p>
+                <div style="margin:24px 0">
+                  <a href="${origin}/admin" style="background:#2b0548;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">Open host workspace</a>
+                </div>
+              </div>
+            </div>
+          </div>
+        `,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to send role request approval to ${user.email}`, error);
+    }
+  }
+
+  async sendRoleRequestRejected(
+    user: { email: string; firstName?: string },
+    request: { adminNote?: string | null },
+  ) {
+    if (!this.transporter || !user.email || user.email.endsWith('@gzura.mobile')) return;
+
+    try {
+      await this.transporter.sendMail({
+        from: this.getFromHeader(),
+        to: user.email,
+        subject: 'Update on your GZURA host request',
+        html: `
+          <div style="background:#f6f3f8;padding:32px 16px;font-family:Helvetica,Arial,sans-serif;color:#222">
+            <div style="max-width:600px;margin:auto;background:#fff;border-radius:14px;overflow:hidden">
+              <div style="background:#2b0548;padding:24px 30px;color:#fff">
+                <h1 style="margin:0;font-size:22px">Request not approved</h1>
+              </div>
+              <div style="padding:30px">
+                <p>Hi <strong>${escapeHtml(user.firstName || 'there')}</strong>,</p>
+                <p>Your request to become a host was not approved at this time. You can submit another request from your profile.</p>
+                ${
+                  request.adminNote
+                    ? `<div style="margin:20px 0;padding:16px;background:#f8f6fa;border-radius:8px"><strong>Note from the team:</strong><br/>${escapeHtml(request.adminNote)}</div>`
+                    : ''
+                }
+              </div>
+            </div>
+          </div>
+        `,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to send role request rejection to ${user.email}`, error);
+    }
+  }
 }

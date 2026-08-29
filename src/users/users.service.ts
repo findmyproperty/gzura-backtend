@@ -9,8 +9,10 @@ import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
+import { RoleRequestStatus } from '../common/enums/role-request-status.enum';
 import { UserStatus } from '../common/enums/user-status.enum';
 import { CommunityRegistration } from '../entities/community-registration.entity';
+import { RoleRequest } from '../entities/role-request.entity';
 import { User } from '../entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -20,6 +22,8 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private userRepo: Repository<User>,
+    @InjectRepository(RoleRequest)
+    private roleRequestRepo: Repository<RoleRequest>,
   ) {}
 
   private sanitize(user: User) {
@@ -230,6 +234,22 @@ export class UsersService {
     if (dto.status !== undefined) user.status = dto.status;
 
     const saved = await this.userRepo.save(user);
+
+    if (dto.role === Role.HOST) {
+      const pending = await this.roleRequestRepo.find({
+        where: { userId: saved.id, status: RoleRequestStatus.PENDING },
+      });
+      if (pending.length) {
+        const now = new Date();
+        for (const request of pending) {
+          request.status = RoleRequestStatus.APPROVED;
+          request.adminNote = request.adminNote || 'Promoted via Users';
+          request.reviewedAt = now;
+        }
+        await this.roleRequestRepo.save(pending);
+      }
+    }
+
     return this.sanitize(saved);
   }
 

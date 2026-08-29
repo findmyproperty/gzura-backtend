@@ -35,6 +35,15 @@ export class UsersController {
     return this.usersService.findHosts();
   }
 
+  @Patch('profile')
+  updateProfile(
+    @CurrentUser() user: { sub: string },
+    @Body() dto: UpdateUserDto,
+  ) {
+    const { role: _role, status: _status, ...safeDto } = dto;
+    return this.usersService.update(user.sub, safeDto);
+  }
+
   @Get(':id')
   @Roles(Role.ADMIN)
   findOne(@Param('id') id: string) {
