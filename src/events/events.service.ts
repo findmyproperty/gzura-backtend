@@ -533,8 +533,14 @@ export class EventsService {
     this.validateOnlineSeats(event.maxAttendees);
 
     if (this.googleCalendar.isConfigured()) {
-      await this.syncGoogleMeet(event);
-      return;
+      try {
+        await this.syncGoogleMeet(event);
+        return;
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Google Meet could not be created';
+        throw new BadRequestException(message);
+      }
     }
 
     if (manualMeetLink && isGoogleMeetLink(manualMeetLink)) {
@@ -560,8 +566,13 @@ export class EventsService {
     const qb = this.eventRepo
       .createQueryBuilder('event')
       .leftJoinAndSelect('event.host', 'host')
-      .loadRelationCountAndMap('event.registrationCount', 'event.registrations')
-      .orderBy('event.dateStart', 'ASC');
+      .loadRelationCountAndMap('event.registrationCount', 'event.registrations');
+
+    if (publishedOnly) {
+      qb.orderBy('event.dateStart', 'ASC');
+    } else {
+      qb.orderBy('event.createdAt', 'DESC');
+    }
 
     if (publishedOnly) {
       qb.andWhere('event.status IN (:...statuses)', {

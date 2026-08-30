@@ -21,4 +21,14 @@ export const getTypeOrmConfig = (
   entities: [User, Event, EventRegistration, EventContentItem, EventActivityLog, CommunityRegistration, ContactSubmission, RoleRequest],
   synchronize: config.get<string>('DB_SYNC') === 'true',
   ssl: config.get<string>('DB_SSL') === 'true',
+  retryAttempts: 5,
+  retryDelay: 3000,
+  extra: {
+    connectionLimit: 10,
+    waitForConnections: true,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10_000,
+    connectTimeout: 20_000,
+    idleTimeout: 60_000,
+  },
 });

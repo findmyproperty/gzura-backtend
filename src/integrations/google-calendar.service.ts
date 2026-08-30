@@ -79,9 +79,9 @@ export class GoogleCalendarService {
           ? error.message
           : String(error);
 
-    if (message.includes('unauthorized_client')) {
+    if (message.includes('unauthorized_client') || message.includes('invalid_grant')) {
       throw new Error(
-        'Google OAuth credentials mismatch. Regenerate GOOGLE_REFRESH_TOKEN with the same Client ID/Secret (run: node scripts/get-google-refresh-token.js).',
+        'Google Calendar login expired or was revoked. Generate a new GOOGLE_REFRESH_TOKEN with the same Client ID/Secret (run: node scripts/get-google-refresh-token.js).',
       );
     }
 
