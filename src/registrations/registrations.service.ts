@@ -68,6 +68,19 @@ export class RegistrationsService {
     return !Number.isFinite(price) || price <= 0;
   }
 
+  private isEventExpired(event: Event) {
+    const end = event.dateEnd || event.dateStart;
+    const timestamp = new Date(end).getTime();
+    return !Number.isNaN(timestamp) && Date.now() > timestamp;
+  }
+
+  async assertCanEnroll(event: Event) {
+    if (this.isEventExpired(event)) {
+      throw new BadRequestException('This event has ended.');
+    }
+    await this.ensureEventCapacity(event);
+  }
+
   private async ensureEventCapacity(event: Event) {
     if (event.maxAttendees == null || event.maxAttendees <= 0) {
       return;
@@ -190,7 +203,7 @@ export class RegistrationsService {
       );
     }
 
-    await this.ensureEventCapacity(event);
+    await this.assertCanEnroll(event);
 
     const email = dto.email.trim().toLowerCase();
     const existing = await this.registrationRepo.findOne({
@@ -252,7 +265,7 @@ export class RegistrationsService {
       );
     }
 
-    await this.ensureEventCapacity(event);
+    await this.assertCanEnroll(event);
 
     const registration = this.registrationRepo.create({
       eventId,
@@ -286,7 +299,7 @@ export class RegistrationsService {
       return this.formatRegistration(existing);
     }
 
-    await this.ensureEventCapacity(event);
+    await this.assertCanEnroll(event);
 
     const registration = this.registrationRepo.create({
       eventId: event.id,
