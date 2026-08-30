@@ -14,6 +14,7 @@ import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decor
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CreateRegistrationDto } from './dto/create-registration.dto';
+import { MarkAttendedDto } from './dto/mark-attended.dto';
 import { JoinEventDto } from './dto/join-event.dto';
 import { ValidatePassDto } from './dto/validate-pass.dto';
 import { RegistrationsService } from './registrations.service';
@@ -51,6 +52,12 @@ export class RegistrationsController {
       user,
       dto.eventId,
     );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('mark-attended')
+  markAttended(@Body() dto: MarkAttendedDto, @CurrentUser() user: JwtPayload) {
+    return this.registrationsService.markAttended(dto.eventId, user.sub);
   }
 
   @UseGuards(JwtAuthGuard)

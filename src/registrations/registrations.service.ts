@@ -17,6 +17,11 @@ import {
   formatTicketId,
   isPaidRegistration,
 } from '../common/utils/invoice.util';
+import {
+  formatCertificateNumber,
+  hasAttended,
+  isEventEnded,
+} from '../common/utils/learning.util';
 import { EventRegistration } from '../entities/event-registration.entity';
 import { Event } from '../entities/event.entity';
 import { User } from '../entities/user.entity';
@@ -118,7 +123,59 @@ export class RegistrationsService {
       checkedInAt: registration.checkedInAt
         ? registration.checkedInAt.toISOString()
         : null,
+      attendedAt: registration.attendedAt
+        ? registration.attendedAt.toISOString()
+        : null,
+      certificateIssuedAt: registration.certificateIssuedAt
+        ? registration.certificateIssuedAt.toISOString()
+        : null,
+      certificateNumber: registration.certificateNumber ?? null,
     };
+  }
+
+  private async maybeIssueCertificate(
+    registration: EventRegistration,
+    event: Event,
+  ) {
+    if (registration.certificateIssuedAt) {
+      return registration;
+    }
+
+    if (!isEventEnded(event) || !hasAttended(registration, event)) {
+      return registration;
+    }
+
+    registration.certificateIssuedAt = new Date();
+    registration.certificateNumber = formatCertificateNumber(registration.id);
+    return this.registrationRepo.save(registration);
+  }
+
+  async markAttended(eventId: string, userId: string) {
+    const registration = await this.registrationRepo.findOne({
+      where: { eventId, userId },
+      relations: ['event'],
+    });
+
+    if (!registration || !registration.event) {
+      throw new NotFoundException('Registration not found');
+    }
+
+    if (registration.event.type !== 'Online') {
+      throw new BadRequestException(
+        'Online attendance is only tracked for online events',
+      );
+    }
+
+    if (!registration.attendedAt) {
+      registration.attendedAt = new Date();
+      await this.registrationRepo.save(registration);
+    }
+
+    const updated = await this.maybeIssueCertificate(
+      registration,
+      registration.event,
+    );
+    return this.formatRegistration(updated);
   }
 
   private async sendEnrollmentEmail(
@@ -350,14 +407,24 @@ export class RegistrationsService {
     return this.formatInvoice(registration);
   }
 
-  findMyRegistrations(userId: string) {
-    return this.registrationRepo
-      .find({
-        where: { userId },
-        relations: ['event'],
-        order: { createdAt: 'DESC' },
-      })
-      .then((rows) => rows.map((row) => this.formatRegistration(row)));
+  async findMyRegistrations(userId: string) {
+    const rows = await this.registrationRepo.find({
+      where: { userId },
+      relations: ['event'],
+      order: { createdAt: 'DESC' },
+    });
+
+    const updated: EventRegistration[] = [];
+    for (const row of rows) {
+      if (row.event) {
+        const saved = await this.maybeIssueCertificate(row, row.event);
+        updated.push(saved);
+      } else {
+        updated.push(row);
+      }
+    }
+
+    return updated.map((row) => this.formatRegistration(row));
   }
 
   async findAll(eventId?: string, actor?: JwtPayload) {
@@ -484,6 +551,7 @@ export class RegistrationsService {
     if (!alreadyPresent) {
       registration.checkedInAt = new Date();
       await this.registrationRepo.save(registration);
+      await this.maybeIssueCertificate(registration, registration.event);
     }
 
     return {

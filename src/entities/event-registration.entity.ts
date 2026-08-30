@@ -65,6 +65,15 @@ export class EventRegistration {
   @Column({ name: 'checked_in_at', type: 'datetime', nullable: true })
   checkedInAt!: Date | null;
 
+  @Column({ name: 'attended_at', type: 'datetime', nullable: true })
+  attendedAt!: Date | null;
+
+  @Column({ name: 'certificate_issued_at', type: 'datetime', nullable: true })
+  certificateIssuedAt!: Date | null;
+
+  @Column({ name: 'certificate_number', type: 'varchar', nullable: true })
+  certificateNumber!: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
