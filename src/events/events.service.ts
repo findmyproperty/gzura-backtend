@@ -566,13 +566,8 @@ export class EventsService {
     const qb = this.eventRepo
       .createQueryBuilder('event')
       .leftJoinAndSelect('event.host', 'host')
-      .loadRelationCountAndMap('event.registrationCount', 'event.registrations');
-
-    if (publishedOnly) {
-      qb.orderBy('event.dateStart', 'ASC');
-    } else {
-      qb.orderBy('event.createdAt', 'DESC');
-    }
+      .loadRelationCountAndMap('event.registrationCount', 'event.registrations')
+      .orderBy('event.createdAt', 'DESC');
 
     if (publishedOnly) {
       qb.andWhere('event.status IN (:...statuses)', {
