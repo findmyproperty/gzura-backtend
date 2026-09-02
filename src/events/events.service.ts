@@ -33,6 +33,8 @@ export class EventsService {
     private eventRepo: Repository<Event>,
     @InjectRepository(EventActivityLog)
     private activityLogRepo: Repository<EventActivityLog>,
+    @InjectRepository(User)
+    private userRepo: Repository<User>,
     private googleCalendar: GoogleCalendarService,
     private usersService: UsersService,
     private mailService: MailService,
@@ -498,11 +500,18 @@ export class EventsService {
   }
 
   private async provisionGoogleMeet(event: Event) {
+    let hostEmail: string | undefined;
+    if (event.hostId) {
+      const host = await this.userRepo.findOne({ where: { id: event.hostId } });
+      if (host) hostEmail = host.email;
+    }
+
     const meet = await this.googleCalendar.createMeetEvent({
       title: event.title,
       description: event.description ?? '',
       start: event.dateStart,
       end: getEventEndDate(event.dateStart, event.dateEnd),
+      hostEmail,
     });
 
     event.meetingRoomId = meet.meetLink;
@@ -516,6 +525,12 @@ export class EventsService {
       return;
     }
 
+    let hostEmail: string | undefined;
+    if (event.hostId) {
+      const host = await this.userRepo.findOne({ where: { id: event.hostId } });
+      if (host) hostEmail = host.email;
+    }
+
     const meet = await this.googleCalendar.updateMeetEvent(
       event.googleCalendarEventId,
       {
@@ -523,6 +538,7 @@ export class EventsService {
         description: event.description ?? '',
         start: event.dateStart,
         end: getEventEndDate(event.dateStart, event.dateEnd),
+        hostEmail,
       },
     );
 

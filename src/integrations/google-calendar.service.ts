@@ -9,6 +9,7 @@ export interface GoogleMeetEventInput {
   start: Date;
   end: Date;
   timeZone?: string;
+  hostEmail?: string;
 }
 
 export interface GoogleMeetEventResult {
@@ -118,6 +119,9 @@ export class GoogleCalendarService {
           dateTime: input.end.toISOString(),
           timeZone,
         },
+        attendees: input.hostEmail
+          ? [{ email: input.hostEmail, responseStatus: 'accepted' }]
+          : undefined,
         conferenceData: {
           createRequest: {
             requestId,
@@ -182,6 +186,9 @@ export class GoogleCalendarService {
           dateTime: input.end.toISOString(),
           timeZone,
         },
+        attendees: input.hostEmail
+          ? [{ email: input.hostEmail, responseStatus: 'accepted' }]
+          : existing.data.attendees,
         conferenceData: existing.data.conferenceData,
       },
     });

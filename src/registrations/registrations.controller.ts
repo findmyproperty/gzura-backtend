@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -17,6 +18,8 @@ import { CreateRegistrationDto } from './dto/create-registration.dto';
 import { MarkAttendedDto } from './dto/mark-attended.dto';
 import { JoinEventDto } from './dto/join-event.dto';
 import { ValidatePassDto } from './dto/validate-pass.dto';
+import { MeetPingDto } from './dto/meet-ping.dto';
+import { UpdateAttendanceStatusDto } from './dto/update-attendance-status.dto';
 import { RegistrationsService } from './registrations.service';
 
 @Controller('registrations')
@@ -96,5 +99,32 @@ export class RegistrationsController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.registrationsService.findOne(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('meet-ping')
+  meetPing(@Body() dto: MeetPingDto, @CurrentUser() user: JwtPayload) {
+    return this.registrationsService.logMeetPing(dto.eventId, user.sub, dto.action, user.role);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.HOST)
+  @Get('attendance/:eventId')
+  getAttendance(
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.registrationsService.getAttendanceSummary(eventId, user);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.HOST)
+  @Patch(':id/attendance-status')
+  updateAttendanceStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateAttendanceStatusDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.registrationsService.updateAttendanceStatus(id, dto.status, user);
   }
 }

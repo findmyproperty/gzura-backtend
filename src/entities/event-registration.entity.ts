@@ -74,6 +74,14 @@ export class EventRegistration {
   @Column({ name: 'certificate_number', type: 'varchar', nullable: true })
   certificateNumber!: string | null;
 
+  @Column({
+    name: 'attendance_status',
+    type: 'varchar',
+    length: 10,
+    nullable: true,
+  })
+  attendanceStatus!: 'present' | 'absent' | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 

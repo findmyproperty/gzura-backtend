@@ -25,6 +25,7 @@ import {
 import { EventRegistration } from '../entities/event-registration.entity';
 import { Event } from '../entities/event.entity';
 import { User } from '../entities/user.entity';
+import { MeetSessionLog } from '../entities/meet-session-log.entity';
 import { MailService } from '../integrations/mail.service';
 import { CreateRegistrationDto } from './dto/create-registration.dto';
 
@@ -42,6 +43,8 @@ export class RegistrationsService {
     private eventRepo: Repository<Event>,
     @InjectRepository(User)
     private userRepo: Repository<User>,
+    @InjectRepository(MeetSessionLog)
+    private meetSessionLogRepo: Repository<MeetSessionLog>,
     private config: ConfigService,
     private mailService: MailService,
   ) {}
@@ -577,5 +580,139 @@ export class RegistrationsService {
 
   getEventById(eventId: string) {
     return this.eventRepo.findOne({ where: { id: eventId } });
+  }
+
+  async logMeetPing(
+    eventId: string,
+    userId: string,
+    action: 'JOIN' | 'LEAVE',
+    actorRole?: string,
+  ) {
+    const isHostOrAdmin =
+      actorRole === Role.ADMIN || actorRole === Role.HOST;
+
+    let registrationId: string | null = null;
+
+    if (!isHostOrAdmin) {
+      // Members must have a valid registration
+      const registration = await this.registrationRepo.findOne({
+        where: { eventId, userId },
+      });
+
+      if (!registration) {
+        throw new NotFoundException('Registration not found');
+      }
+
+      registrationId = registration.id;
+    }
+
+    const log = this.meetSessionLogRepo.create({
+      eventId,
+      registrationId,
+      userId,
+      action,
+      actorRole: actorRole ?? Role.MEMBER,
+    });
+
+    await this.meetSessionLogRepo.save(log);
+    return { success: true, action };
+  }
+
+
+  async getAttendanceSummary(eventId: string, actor?: JwtPayload) {
+    if (actor?.role === Role.HOST) {
+      const event = await this.eventRepo.findOne({ where: { id: eventId } });
+      if (!event || event.hostId !== actor.sub) {
+        throw new ForbiddenException('Not authorized to view this event');
+      }
+    }
+
+    const registrations = await this.registrationRepo.find({
+      where: { eventId },
+      order: { createdAt: 'ASC' },
+    });
+
+    const sessionLogs = await this.meetSessionLogRepo.find({
+      where: { eventId },
+      order: { createdAt: 'ASC' },
+    });
+
+    // Group logs by registrationId.
+    // Skip host/admin logs (registrationId === null) — they are not member sessions.
+    const logsByReg = new Map<string, MeetSessionLog[]>();
+    for (const log of sessionLogs) {
+      if (!log.registrationId) continue;
+      const arr = logsByReg.get(log.registrationId) ?? [];
+      arr.push(log);
+      logsByReg.set(log.registrationId, arr);
+    }
+
+    return registrations.map((reg) => {
+      const logs = logsByReg.get(reg.id) ?? [];
+
+      let totalDurationSeconds = 0;
+      let firstJoinedAt: Date | null = null;
+      let lastLeftAt: Date | null = null;
+      let sessionCount = 0;
+      let pendingJoin: Date | null = null;
+
+      for (const log of logs) {
+        if (log.action === 'JOIN') {
+          if (!firstJoinedAt) firstJoinedAt = log.createdAt;
+          pendingJoin = log.createdAt;
+        } else if (log.action === 'LEAVE') {
+          lastLeftAt = log.createdAt;
+          if (pendingJoin) {
+            const diff = (log.createdAt.getTime() - pendingJoin.getTime()) / 1000;
+            totalDurationSeconds += Math.max(0, diff);
+            sessionCount += 1;
+            pendingJoin = null;
+          }
+        }
+      }
+
+      // If user joined but never sent a LEAVE (tab still open), don't count open session
+      const calculatedStatus: 'present' | 'absent' =
+        logs.length > 0 ? 'present' : 'absent';
+
+      return {
+        registrationId: reg.id,
+        fullName: reg.fullName,
+        email: reg.email,
+        phone: reg.phone ?? null,
+        attendanceStatus: reg.attendanceStatus ?? null,
+        calculatedStatus,
+        firstJoinedAt: firstJoinedAt ? firstJoinedAt.toISOString() : null,
+        lastLeftAt: lastLeftAt ? lastLeftAt.toISOString() : null,
+        totalDurationSeconds: Math.round(totalDurationSeconds),
+        sessionCount,
+      };
+    });
+  }
+
+  async updateAttendanceStatus(
+    registrationId: string,
+    status: 'present' | 'absent',
+    actor?: JwtPayload,
+  ) {
+    const registration = await this.registrationRepo.findOne({
+      where: { id: registrationId },
+      relations: ['event'],
+    });
+
+    if (!registration) {
+      throw new NotFoundException('Registration not found');
+    }
+
+    if (
+      actor?.role === Role.HOST &&
+      registration.event?.hostId !== actor.sub
+    ) {
+      throw new ForbiddenException('Not authorized to update this registration');
+    }
+
+    registration.attendanceStatus = status;
+    await this.registrationRepo.save(registration);
+    return { registrationId, attendanceStatus: status };
   }
 }
