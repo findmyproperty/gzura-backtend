@@ -127,4 +127,28 @@ export class RegistrationsController {
   ) {
     return this.registrationsService.updateAttendanceStatus(id, dto.status, user);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('events/:id/access-meet')
+  getMeetingAccess(
+    @Param('id') eventId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.registrationsService.getMeetingAccess(eventId, user.sub, user.role);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.HOST)
+  @Post('events/:id/sync-google-meet')
+  syncGoogleMeet(
+    @Param('id') eventId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.registrationsService.syncGoogleMeetAttendance(eventId, user);
+  }
+
+  @Post('google-meet/webhook')
+  handleGoogleMeetWebhook(@Body() body: any) {
+    return this.registrationsService.handlePubSubWebhook(body);
+  }
 }
