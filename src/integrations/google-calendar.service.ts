@@ -74,7 +74,6 @@ export class GoogleCalendarService {
           'https://www.googleapis.com/auth/calendar',
           'https://www.googleapis.com/auth/meetings.space.created',
           'https://www.googleapis.com/auth/meetings.space.readonly',
-          'https://www.googleapis.com/auth/meetings.conference.records.readonly',
         ],
         subject: impersonateEmail || undefined,
       });
