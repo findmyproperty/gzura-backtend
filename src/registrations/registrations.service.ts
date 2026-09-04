@@ -605,13 +605,19 @@ export class RegistrationsService {
     action: 'JOIN' | 'LEAVE',
     actorRole?: string,
   ) {
-    const isHostOrAdmin =
-      actorRole === Role.ADMIN || actorRole === Role.HOST;
+    const event = await this.eventRepo.findOne({ where: { id: eventId } });
+    if (!event) {
+      throw new NotFoundException('Event not found');
+    }
+
+    const isAssignedHostOrAdmin =
+      actorRole === Role.ADMIN ||
+      (actorRole === Role.HOST && event.hostId === userId);
 
     let registrationId: string | null = null;
 
-    if (!isHostOrAdmin) {
-      // Members must have a valid registration
+    if (!isAssignedHostOrAdmin) {
+      // Members (or non-assigned hosts) must have a valid registration
       const registration = await this.registrationRepo.findOne({
         where: { eventId, userId },
       });
