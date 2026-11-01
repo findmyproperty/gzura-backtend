@@ -10,6 +10,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SendOtpDto } from './dto/send-otp.dto';
+import { SwitchRoleDto } from './dto/switch-role.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { VerifyLinkPhoneDto } from './dto/verify-link-phone.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
@@ -56,6 +57,21 @@ export class AuthController {
   @Post('admin/login')
   adminLogin(@Body() dto: LoginDto) {
     return this.authService.login(dto, true);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('refresh')
+  refresh(@CurrentUser() user: JwtPayload) {
+    return this.authService.refreshSession(user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('switch-role')
+  switchRole(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: SwitchRoleDto,
+  ) {
+    return this.authService.switchWorkspaceRole(user.sub, dto);
   }
 
   @UseGuards(JwtAuthGuard)

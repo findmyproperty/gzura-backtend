@@ -285,6 +285,29 @@ async function ensureEventActivityLogsTable(app: NestExpressApplication) {
   `);
 }
 
+async function ensureUserCanHostColumn(app: NestExpressApplication) {
+  const dataSource = app.get(DataSource);
+  const rows = await dataSource.query(
+    `
+      SELECT COUNT(*) AS count
+      FROM information_schema.columns
+      WHERE table_schema = DATABASE()
+        AND table_name = 'users'
+        AND column_name = 'can_host'
+    `,
+  );
+
+  if (Number(rows?.[0]?.count ?? 0) === 0) {
+    await dataSource.query(
+      'ALTER TABLE users ADD COLUMN can_host TINYINT(1) NOT NULL DEFAULT 0 AFTER role',
+    );
+  }
+
+  await dataSource.query(
+    `UPDATE users SET can_host = 1 WHERE role IN ('HOST', 'ADMIN') AND can_host = 0`,
+  );
+}
+
 async function ensureUserAvatarColumn(app: NestExpressApplication) {
   const dataSource = app.get(DataSource);
   const rows = await dataSource.query(
@@ -402,6 +425,7 @@ async function bootstrap() {
   await ensureEventStatusEnum(app);
   await ensureEventActivityLogsTable(app);
   await ensureUserAvatarColumn(app);
+  await ensureUserCanHostColumn(app);
   await ensureUserOtpColumns(app);
   await ensurePendingPhoneColumn(app);
   await ensurePasswordResetColumns(app);

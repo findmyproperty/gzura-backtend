@@ -17,10 +17,17 @@ import {
   formatTicketId,
   isPaidRegistration,
 } from '../common/utils/invoice.util';
+import {
+  formatCertificateNumber,
+  hasAttended,
+  isEventEnded,
+} from '../common/utils/learning.util';
 import { EventRegistration } from '../entities/event-registration.entity';
 import { Event } from '../entities/event.entity';
 import { User } from '../entities/user.entity';
+import { MeetSessionLog } from '../entities/meet-session-log.entity';
 import { MailService } from '../integrations/mail.service';
+import { GoogleCalendarService } from '../integrations/google-calendar.service';
 import { CreateRegistrationDto } from './dto/create-registration.dto';
 
 type JoinUser = Pick<
@@ -37,8 +44,11 @@ export class RegistrationsService {
     private eventRepo: Repository<Event>,
     @InjectRepository(User)
     private userRepo: Repository<User>,
+    @InjectRepository(MeetSessionLog)
+    private meetSessionLogRepo: Repository<MeetSessionLog>,
     private config: ConfigService,
     private mailService: MailService,
+    private googleCalendar: GoogleCalendarService,
   ) {}
 
   private generateAccessToken() {
@@ -66,6 +76,19 @@ export class RegistrationsService {
 
   isFreePrice(price: number) {
     return !Number.isFinite(price) || price <= 0;
+  }
+
+  private isEventExpired(event: Event) {
+    const end = event.dateEnd || event.dateStart;
+    const timestamp = new Date(end).getTime();
+    return !Number.isNaN(timestamp) && Date.now() > timestamp;
+  }
+
+  async assertCanEnroll(event: Event) {
+    if (this.isEventExpired(event)) {
+      throw new BadRequestException('This event has ended.');
+    }
+    await this.ensureEventCapacity(event);
   }
 
   private async ensureEventCapacity(event: Event) {
@@ -105,7 +128,59 @@ export class RegistrationsService {
       checkedInAt: registration.checkedInAt
         ? registration.checkedInAt.toISOString()
         : null,
+      attendedAt: registration.attendedAt
+        ? registration.attendedAt.toISOString()
+        : null,
+      certificateIssuedAt: registration.certificateIssuedAt
+        ? registration.certificateIssuedAt.toISOString()
+        : null,
+      certificateNumber: registration.certificateNumber ?? null,
     };
+  }
+
+  private async maybeIssueCertificate(
+    registration: EventRegistration,
+    event: Event,
+  ) {
+    if (registration.certificateIssuedAt) {
+      return registration;
+    }
+
+    if (!isEventEnded(event) || !hasAttended(registration, event)) {
+      return registration;
+    }
+
+    registration.certificateIssuedAt = new Date();
+    registration.certificateNumber = formatCertificateNumber(registration.id);
+    return this.registrationRepo.save(registration);
+  }
+
+  async markAttended(eventId: string, userId: string) {
+    const registration = await this.registrationRepo.findOne({
+      where: { eventId, userId },
+      relations: ['event'],
+    });
+
+    if (!registration || !registration.event) {
+      throw new NotFoundException('Registration not found');
+    }
+
+    if (registration.event.type !== 'Online') {
+      throw new BadRequestException(
+        'Online attendance is only tracked for online events',
+      );
+    }
+
+    if (!registration.attendedAt) {
+      registration.attendedAt = new Date();
+      await this.registrationRepo.save(registration);
+    }
+
+    const updated = await this.maybeIssueCertificate(
+      registration,
+      registration.event,
+    );
+    return this.formatRegistration(updated);
   }
 
   private async sendEnrollmentEmail(
@@ -191,7 +266,7 @@ export class RegistrationsService {
       );
     }
 
-    await this.ensureEventCapacity(event);
+    await this.assertCanEnroll(event);
 
     const email = dto.email.trim().toLowerCase();
     const existing = await this.registrationRepo.findOne({
@@ -222,6 +297,11 @@ export class RegistrationsService {
 
     const saved = await this.registrationRepo.save(registration);
     await this.sendEnrollmentEmail(saved, event);
+    if (event.googleCalendarEventId) {
+      this.googleCalendar
+        .addAttendee(event.googleCalendarEventId, saved.email, saved.fullName)
+        .catch(() => {});
+    }
     return this.loadRegistration(saved.id);
   }
 
@@ -253,7 +333,7 @@ export class RegistrationsService {
       );
     }
 
-    await this.ensureEventCapacity(event);
+    await this.assertCanEnroll(event);
 
     const registration = this.registrationRepo.create({
       eventId,
@@ -270,6 +350,11 @@ export class RegistrationsService {
 
     const saved = await this.registrationRepo.save(registration);
     await this.sendEnrollmentEmail(saved, event);
+    if (event.googleCalendarEventId) {
+      this.googleCalendar
+        .addAttendee(event.googleCalendarEventId, saved.email, saved.fullName)
+        .catch(() => {});
+    }
     return this.loadRegistration(saved.id);
   }
 
@@ -287,7 +372,7 @@ export class RegistrationsService {
       return this.formatRegistration(existing);
     }
 
-    await this.ensureEventCapacity(event);
+    await this.assertCanEnroll(event);
 
     const registration = this.registrationRepo.create({
       eventId: event.id,
@@ -306,6 +391,11 @@ export class RegistrationsService {
 
     const saved = await this.registrationRepo.save(registration);
     await this.sendEnrollmentEmail(saved, event);
+    if (event.googleCalendarEventId) {
+      this.googleCalendar
+        .addAttendee(event.googleCalendarEventId, saved.email, saved.fullName)
+        .catch(() => {});
+    }
     await this.mailService.sendPaymentInvoice(saved, event, {
       razorpayPaymentId: payment.razorpayPaymentId,
       amount: payment.amount,
@@ -338,14 +428,24 @@ export class RegistrationsService {
     return this.formatInvoice(registration);
   }
 
-  findMyRegistrations(userId: string) {
-    return this.registrationRepo
-      .find({
-        where: { userId },
-        relations: ['event'],
-        order: { createdAt: 'DESC' },
-      })
-      .then((rows) => rows.map((row) => this.formatRegistration(row)));
+  async findMyRegistrations(userId: string) {
+    const rows = await this.registrationRepo.find({
+      where: { userId },
+      relations: ['event'],
+      order: { createdAt: 'DESC' },
+    });
+
+    const updated: EventRegistration[] = [];
+    for (const row of rows) {
+      if (row.event) {
+        const saved = await this.maybeIssueCertificate(row, row.event);
+        updated.push(saved);
+      } else {
+        updated.push(row);
+      }
+    }
+
+    return updated.map((row) => this.formatRegistration(row));
   }
 
   async findAll(eventId?: string, actor?: JwtPayload) {
@@ -472,6 +572,7 @@ export class RegistrationsService {
     if (!alreadyPresent) {
       registration.checkedInAt = new Date();
       await this.registrationRepo.save(registration);
+      await this.maybeIssueCertificate(registration, registration.event);
     }
 
     return {
@@ -497,5 +598,364 @@ export class RegistrationsService {
 
   getEventById(eventId: string) {
     return this.eventRepo.findOne({ where: { id: eventId } });
+  }
+
+  async logMeetPing(
+    eventId: string,
+    userId: string,
+    action: 'JOIN' | 'LEAVE',
+    actorRole?: string,
+  ) {
+    const event = await this.eventRepo.findOne({ where: { id: eventId } });
+    if (!event) {
+      throw new NotFoundException('Event not found');
+    }
+
+    const isAssignedHostOrAdmin =
+      actorRole === Role.ADMIN ||
+      (actorRole === Role.HOST && event.hostId === userId);
+
+    let registrationId: string | null = null;
+
+    if (!isAssignedHostOrAdmin) {
+      // Members (or non-assigned hosts) must have a valid registration
+      const registration = await this.registrationRepo.findOne({
+        where: { eventId, userId },
+      });
+
+      if (!registration) {
+        throw new NotFoundException('Registration not found');
+      }
+
+      registrationId = registration.id;
+    }
+
+    const log = this.meetSessionLogRepo.create({
+      eventId,
+      registrationId,
+      userId,
+      action,
+      actorRole: actorRole ?? Role.MEMBER,
+    });
+
+    await this.meetSessionLogRepo.save(log);
+    return { success: true, action };
+  }
+
+
+  async getAttendanceSummary(eventId: string, actor?: JwtPayload) {
+    if (actor?.role === Role.HOST) {
+      const event = await this.eventRepo.findOne({ where: { id: eventId } });
+      if (!event || event.hostId !== actor.sub) {
+        throw new ForbiddenException('Not authorized to view this event');
+      }
+    }
+
+    const registrations = await this.registrationRepo.find({
+      where: { eventId },
+      order: { createdAt: 'ASC' },
+    });
+
+    const sessionLogs = await this.meetSessionLogRepo.find({
+      where: { eventId },
+      order: { createdAt: 'ASC' },
+    });
+
+    // Group logs by registrationId.
+    // Skip host/admin logs (registrationId === null) — they are not member sessions.
+    const logsByReg = new Map<string, MeetSessionLog[]>();
+    for (const log of sessionLogs) {
+      if (!log.registrationId) continue;
+      const arr = logsByReg.get(log.registrationId) ?? [];
+      arr.push(log);
+      logsByReg.set(log.registrationId, arr);
+    }
+
+    return registrations.map((reg) => {
+      const logs = logsByReg.get(reg.id) ?? [];
+
+      let totalDurationSeconds = 0;
+      let firstJoinedAt: Date | null = null;
+      let lastLeftAt: Date | null = null;
+      let sessionCount = 0;
+      let pendingJoin: Date | null = null;
+
+      let isGoogleVerified = false;
+      for (const log of logs) {
+        if (log.actorRole === 'GOOGLE_MEET') {
+          isGoogleVerified = true;
+        }
+        if (log.action === 'JOIN') {
+          if (!firstJoinedAt) firstJoinedAt = log.createdAt;
+          pendingJoin = log.createdAt;
+        } else if (log.action === 'LEAVE') {
+          lastLeftAt = log.createdAt;
+          if (pendingJoin) {
+            const diff = (log.createdAt.getTime() - pendingJoin.getTime()) / 1000;
+            totalDurationSeconds += Math.max(0, diff);
+            sessionCount += 1;
+            pendingJoin = null;
+          }
+        }
+      }
+
+      // If user joined but never sent a LEAVE (tab still open), don't count open session
+      const calculatedStatus: 'present' | 'absent' =
+        logs.length > 0 ? 'present' : 'absent';
+
+      return {
+        registrationId: reg.id,
+        fullName: reg.fullName,
+        email: reg.email,
+        phone: reg.phone ?? null,
+        attendanceStatus: reg.attendanceStatus ?? null,
+        calculatedStatus,
+        isGoogleVerified,
+        firstJoinedAt: firstJoinedAt ? firstJoinedAt.toISOString() : null,
+        lastLeftAt: lastLeftAt ? lastLeftAt.toISOString() : null,
+        totalDurationSeconds: Math.round(totalDurationSeconds),
+        sessionCount,
+      };
+    });
+  }
+
+  async updateAttendanceStatus(
+    registrationId: string,
+    status: 'present' | 'absent',
+    actor?: JwtPayload,
+  ) {
+    const registration = await this.registrationRepo.findOne({
+      where: { id: registrationId },
+      relations: ['event'],
+    });
+
+    if (!registration) {
+      throw new NotFoundException('Registration not found');
+    }
+
+    if (
+      actor?.role === Role.HOST &&
+      registration.event?.hostId !== actor.sub
+    ) {
+      throw new ForbiddenException('Not authorized to update this registration');
+    }
+
+    registration.attendanceStatus = status;
+    await this.registrationRepo.save(registration);
+    return { registrationId, attendanceStatus: status };
+  }
+
+  async getMeetingAccess(eventId: string, userId: string, actorRole?: string) {
+    const event = await this.eventRepo.findOne({ where: { id: eventId } });
+    if (!event) {
+      throw new NotFoundException('Event not found');
+    }
+
+    if (event.type !== 'Online') {
+      throw new BadRequestException('This is not an online event');
+    }
+
+    if (!event.meetingRoomId) {
+      throw new BadRequestException('Google Meet link is not ready for this event yet.');
+    }
+
+    const isHostOrAdmin =
+      actorRole === Role.ADMIN ||
+      (actorRole === Role.HOST && event.hostId === userId);
+
+    if (isHostOrAdmin) {
+      return {
+        meetUrl: event.meetingRoomId,
+        eventTitle: event.title,
+        dateStart: event.dateStart,
+        timeLabel: event.timeLabel,
+        isHost: true,
+      };
+    }
+
+    const registration = await this.registrationRepo.findOne({
+      where: { eventId, userId },
+    });
+
+    if (!registration) {
+      throw new ForbiddenException(
+        'You must enroll or purchase a pass for this event before accessing the meeting link.',
+      );
+    }
+
+    return {
+      meetUrl: event.meetingRoomId,
+      eventTitle: event.title,
+      dateStart: event.dateStart,
+      timeLabel: event.timeLabel,
+      isHost: false,
+      registrationId: registration.id,
+    };
+  }
+
+  async syncGoogleMeetAttendance(eventId: string, actor?: JwtPayload) {
+    const event = await this.eventRepo.findOne({ where: { id: eventId } });
+    if (!event) {
+      throw new NotFoundException('Event not found');
+    }
+
+    if (actor?.role === Role.HOST && event.hostId !== actor.sub) {
+      throw new ForbiddenException('Not authorized to manage this event');
+    }
+
+    if (event.type !== 'Online' || !event.meetingRoomId) {
+      throw new BadRequestException(
+        'Event is not an online event or has no Google Meet link configured',
+      );
+    }
+
+    const records = await this.googleCalendar.fetchConferenceAttendance(
+      event.meetingRoomId,
+    );
+
+    if (!records || records.length === 0) {
+      const summary = await this.getAttendanceSummary(eventId, actor);
+      return {
+        syncedCount: 0,
+        message:
+          'No conference records found from Google Meet yet. If the session just concluded, Google may take a few minutes to finalize attendance logs.',
+        summary,
+      };
+    }
+
+    const registrations = await this.registrationRepo.find({
+      where: { eventId },
+      relations: ['event'],
+    });
+
+    let syncedCount = 0;
+
+    for (const record of records) {
+      const recEmail = record.email?.toLowerCase().trim();
+      const recName = record.displayName?.toLowerCase().trim();
+
+      const matchedReg = registrations.find((r) => {
+        if (recEmail && r.email.toLowerCase().trim() === recEmail) return true;
+        if (recName && r.fullName.toLowerCase().trim() === recName) return true;
+        return false;
+      });
+
+      if (matchedReg) {
+        syncedCount++;
+
+        if (record.firstJoinedAt) {
+          const joinLog = this.meetSessionLogRepo.create({
+            eventId,
+            registrationId: matchedReg.id,
+            userId: matchedReg.userId,
+            action: 'JOIN',
+            actorRole: 'GOOGLE_MEET',
+            createdAt: new Date(record.firstJoinedAt),
+          });
+          await this.meetSessionLogRepo.save(joinLog);
+        }
+
+        if (record.lastLeftAt) {
+          const leaveLog = this.meetSessionLogRepo.create({
+            eventId,
+            registrationId: matchedReg.id,
+            userId: matchedReg.userId,
+            action: 'LEAVE',
+            actorRole: 'GOOGLE_MEET',
+            createdAt: new Date(record.lastLeftAt),
+          });
+          await this.meetSessionLogRepo.save(leaveLog);
+        }
+
+        if (record.firstJoinedAt && !matchedReg.attendedAt) {
+          matchedReg.attendedAt = new Date(record.firstJoinedAt);
+        }
+
+        if (record.totalDurationSeconds > 0) {
+          matchedReg.attendanceStatus = 'present';
+        }
+
+        await this.registrationRepo.save(matchedReg);
+
+        if (matchedReg.event) {
+          await this.maybeIssueCertificate(matchedReg, matchedReg.event);
+        }
+      }
+    }
+
+    const summary = await this.getAttendanceSummary(eventId, actor);
+    return {
+      syncedCount,
+      message: `Successfully synchronized ${syncedCount} participant(s) from Google Meet.`,
+      summary,
+    };
+  }
+
+  async handlePubSubWebhook(body: any) {
+    if (!body?.message?.data) {
+      return { status: 'ignored' };
+    }
+
+    try {
+      const decoded = Buffer.from(body.message.data, 'base64').toString('utf8');
+      const payload = JSON.parse(decoded);
+      const eventType: string = payload.eventType || payload['@type'] || '';
+      const participant = payload.participant || {};
+      const spaceName: string =
+        payload.space?.name || payload.conferenceRecord?.space || '';
+
+      if (!spaceName) return { status: 'no_space' };
+
+      const cleanCode = spaceName.replace(/^spaces\//, '');
+      const event = await this.eventRepo
+        .createQueryBuilder('event')
+        .where('event.meeting_room_id LIKE :code', { code: `%${cleanCode}%` })
+        .getOne();
+
+      if (!event) return { status: 'event_not_found' };
+
+      const userEmail =
+        participant.signedinUser?.user &&
+        participant.signedinUser.user.includes('@')
+          ? participant.signedinUser.user.toLowerCase()
+          : null;
+      const userName = participant.anonymousUser?.displayName;
+
+      let reg: EventRegistration | null = null;
+      if (userEmail) {
+        reg = await this.registrationRepo.findOne({
+          where: { eventId: event.id, email: userEmail },
+        });
+      }
+      if (!reg && userName) {
+        reg = await this.registrationRepo.findOne({
+          where: { eventId: event.id, fullName: userName },
+        });
+      }
+
+      if (reg) {
+        const action = eventType.toLowerCase().includes('left')
+          ? 'LEAVE'
+          : 'JOIN';
+        const log = this.meetSessionLogRepo.create({
+          eventId: event.id,
+          registrationId: reg.id,
+          userId: reg.userId,
+          action,
+          actorRole: 'GOOGLE_MEET',
+        });
+        await this.meetSessionLogRepo.save(log);
+
+        if (action === 'JOIN') {
+          reg.attendedAt = new Date();
+          reg.attendanceStatus = 'present';
+          await this.registrationRepo.save(reg);
+        }
+      }
+
+      return { status: 'success' };
+    } catch (err) {
+      return { status: 'error', error: String(err) };
+    }
   }
 }

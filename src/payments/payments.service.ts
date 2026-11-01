@@ -58,6 +58,8 @@ export class PaymentsService {
       throw new NotFoundException('User not found');
     }
 
+    await this.registrationsService.assertCanEnroll(event);
+
     const price = this.registrationsService.resolveEventPrice(event, user);
     if (this.registrationsService.isFreePrice(price)) {
       throw new BadRequestException('This event is free. Join directly without payment.');

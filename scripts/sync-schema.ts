@@ -4,8 +4,11 @@ import { User } from '../src/entities/user.entity';
 import { Event } from '../src/entities/event.entity';
 import { EventRegistration } from '../src/entities/event-registration.entity';
 import { EventContentItem } from '../src/entities/event-content-item.entity';
+import { EventActivityLog } from '../src/entities/event-activity-log.entity';
 import { CommunityRegistration } from '../src/entities/community-registration.entity';
 import { ContactSubmission } from '../src/entities/contact-submission.entity';
+import { RoleRequest } from '../src/entities/role-request.entity';
+import { MeetSessionLog } from '../src/entities/meet-session-log.entity';
 
 config();
 
@@ -16,7 +19,7 @@ const dataSource = new DataSource({
   username: process.env.DB_USERNAME,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_DATABASE,
-  entities: [User, Event, EventRegistration, EventContentItem, CommunityRegistration, ContactSubmission],
+  entities: [User, Event, EventRegistration, EventContentItem, EventActivityLog, CommunityRegistration, ContactSubmission, RoleRequest, MeetSessionLog],
   synchronize: true,
 });
 

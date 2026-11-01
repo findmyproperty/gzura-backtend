@@ -3,4 +3,6 @@ export enum EventContentType {
   PDF = 'PDF',
   WORD = 'WORD',
   EXCEL = 'EXCEL',
+  VIDEO = 'VIDEO',
+  FILE = 'FILE',
 }

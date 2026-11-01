@@ -40,7 +40,8 @@ export class UsersController {
     @CurrentUser() user: { sub: string },
     @Body() dto: UpdateUserDto,
   ) {
-    return this.usersService.update(user.sub, dto);
+    const { role: _role, status: _status, ...safeDto } = dto;
+    return this.usersService.update(user.sub, safeDto);
   }
 
   @Get(':id')
