@@ -22,7 +22,11 @@ import { User } from '../entities/user.entity';
 import { GoogleCalendarService } from '../integrations/google-calendar.service';
 import { MailService } from '../integrations/mail.service';
 import { UsersService } from '../users/users.service';
-import { CreateEventDto } from './dto/create-event.dto';
+import {
+  CreateEventDto,
+  MAX_EVENT_ATTENDEES,
+  MAX_EVENT_PRICE,
+} from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { EventPendingChanges } from './pending-changes';
 
@@ -294,6 +298,23 @@ export class EventsService {
   }
 
   private async applyUpdateDto(event: Event, dto: UpdateEventDto) {
+    this.validateScheduleAndLimits({
+      // Only enforce "not past" when the start date is being changed.
+      dateStart: dto.dateStart,
+      dateEnd:
+        dto.dateEnd !== undefined
+          ? dto.dateEnd
+          : dto.dateStart
+            ? event.dateEnd
+            : undefined,
+      timeLabel: dto.timeLabel !== undefined ? dto.timeLabel : event.timeLabel,
+      price: dto.price ?? event.price,
+      memberPrice:
+        dto.memberPrice !== undefined ? dto.memberPrice : event.memberPrice,
+      maxAttendees:
+        dto.maxAttendees !== undefined ? dto.maxAttendees : event.maxAttendees,
+    });
+
     const previousType = event.type;
     const nextType = dto.type ?? event.type;
     const becameOffline =
@@ -476,6 +497,75 @@ export class EventsService {
     if (!maxAttendees || maxAttendees < 1) {
       throw new BadRequestException(
         'Online events require total seats to be at least 1',
+      );
+    }
+  }
+
+  /** Past dates, equal start/end times, and hard caps (DTO Max is a second line of defence). */
+  private validateScheduleAndLimits(input: {
+    dateStart?: string | Date | null;
+    dateEnd?: string | Date | null;
+    timeLabel?: string | null;
+    price?: number | null;
+    memberPrice?: number | null;
+    maxAttendees?: number | null;
+  }) {
+    if (input.dateStart) {
+      const start = new Date(input.dateStart);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const startDay = new Date(start);
+      startDay.setHours(0, 0, 0, 0);
+      if (startDay < today) {
+        throw new BadRequestException('Event date cannot be in the past');
+      }
+    }
+
+    if (input.dateStart && input.dateEnd) {
+      const start = new Date(input.dateStart);
+      const end = new Date(input.dateEnd);
+      if (end < start) {
+        throw new BadRequestException('End date cannot be before start date');
+      }
+    }
+
+    if (input.timeLabel?.trim()) {
+      const parts = input.timeLabel.split(/\s*-\s*/).map((p) => p.trim());
+      if (parts.length >= 2 && parts[0] && parts[1]) {
+        const toMinutes = (label: string): number | null => {
+          const m = label.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+          if (!m) return null;
+          let hours = parseInt(m[1], 10);
+          const minutes = parseInt(m[2], 10);
+          const period = m[3].toUpperCase();
+          if (period === 'PM' && hours !== 12) hours += 12;
+          if (period === 'AM' && hours === 12) hours = 0;
+          return hours * 60 + minutes;
+        };
+        const startM = toMinutes(parts[0]);
+        const endM = toMinutes(parts[1]);
+        if (startM != null && endM != null && endM <= startM) {
+          throw new BadRequestException('End time must be after start time');
+        }
+      }
+    }
+
+    if (input.price != null && input.price > MAX_EVENT_PRICE) {
+      throw new BadRequestException(
+        `Price cannot exceed ${MAX_EVENT_PRICE}`,
+      );
+    }
+    if (input.memberPrice != null && input.memberPrice > MAX_EVENT_PRICE) {
+      throw new BadRequestException(
+        `Member price cannot exceed ${MAX_EVENT_PRICE}`,
+      );
+    }
+    if (
+      input.maxAttendees != null &&
+      (input.maxAttendees < 1 || input.maxAttendees > MAX_EVENT_ATTENDEES)
+    ) {
+      throw new BadRequestException(
+        `Max attendees must be between 1 and ${MAX_EVENT_ATTENDEES}`,
       );
     }
   }
@@ -672,6 +762,15 @@ export class EventsService {
     if (isOnline) {
       this.validateOnlineSeats(dto.maxAttendees);
     }
+
+    this.validateScheduleAndLimits({
+      dateStart: dto.dateStart,
+      dateEnd: dto.dateEnd,
+      timeLabel: dto.timeLabel,
+      price: dto.price,
+      memberPrice: dto.memberPrice,
+      maxAttendees: dto.maxAttendees,
+    });
 
     const images = this.normalizeGalleryImages(
       dto.imageUrl,

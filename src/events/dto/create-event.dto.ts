@@ -7,10 +7,15 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   Min,
 } from 'class-validator';
 import { EventFormat } from '../../common/enums/event-format.enum';
 import { EventStatus } from '../../common/enums/event-status.enum';
+
+/** Defaults until client confirms caps. */
+export const MAX_EVENT_ATTENDEES = 500;
+export const MAX_EVENT_PRICE = 100_000;
 
 export class CreateEventDto {
   @IsString()
@@ -79,16 +84,19 @@ export class CreateEventDto {
 
   @IsNumber()
   @Min(0)
+  @Max(MAX_EVENT_PRICE)
   price!: number;
 
   @IsOptional()
   @IsNumber()
   @Min(0)
+  @Max(MAX_EVENT_PRICE)
   memberPrice?: number;
 
   @IsOptional()
   @IsNumber()
   @Min(1)
+  @Max(MAX_EVENT_ATTENDEES)
   maxAttendees?: number;
 
   @IsOptional()

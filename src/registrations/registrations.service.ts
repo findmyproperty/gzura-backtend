@@ -118,6 +118,7 @@ export class RegistrationsService {
       event,
       passUrl,
     );
+    await this.mailService.sendNewRegistrationAdminAlert(registration, event);
   }
 
   private async sendInvoiceEmail(

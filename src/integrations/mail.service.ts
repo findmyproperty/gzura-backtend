@@ -5,6 +5,7 @@ import { Resend } from 'resend';
 import { Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import { CommunityRegistration } from '../entities/community-registration.entity';
+import { ContactSubmission } from '../entities/contact-submission.entity';
 import { EventRegistration } from '../entities/event-registration.entity';
 import { Event } from '../entities/event.entity';
 import { User } from '../entities/user.entity';
@@ -347,6 +348,87 @@ export class MailService {
       });
     } catch (error) {
       this.logger.error(`Failed to send host application confirmation to ${registration.email}`, error);
+    }
+  }
+
+  async sendContactSubmissionAdminAlert(submission: ContactSubmission) {
+    if (!this.resend) return;
+
+    const adminEmails = await this.getAdminEmails();
+    if (!adminEmails.length) {
+      this.logger.warn('Contact alert skipped: no admin recipients configured');
+      return;
+    }
+
+    try {
+      await this.sendEmail({
+        to: adminEmails,
+        subject: `New Contact Message: ${submission.subject}`,
+        html: `
+          <div style="background:#f6f3f8;padding:32px 16px;font-family:Helvetica,Arial,sans-serif;color:#222">
+            <div style="max-width:600px;margin:auto;background:#fff;border-radius:14px;overflow:hidden">
+              <div style="background:#2b0548;padding:24px 30px;color:#fff">
+                <h1 style="margin:0;font-size:20px">New Contact Message</h1>
+              </div>
+              <div style="padding:30px">
+                <div style="margin:20px 0;padding:16px;background:#f8f6fa;border-radius:8px;line-height:1.7">
+                  <div><strong>Name:</strong> ${escapeHtml(submission.name)}</div>
+                  <div><strong>Email:</strong> ${escapeHtml(submission.email)}</div>
+                  <div><strong>Phone:</strong> ${escapeHtml(submission.phone || 'N/A')}</div>
+                  <div><strong>Subject:</strong> ${escapeHtml(submission.subject)}</div>
+                  <div><strong>Message:</strong> ${escapeHtml(submission.message)}</div>
+                </div>
+                <p>Reply to the sender by email. Contact inbox UI is not yet available in admin.</p>
+              </div>
+            </div>
+          </div>
+        `,
+      });
+    } catch (error) {
+      this.logger.error('Failed to send contact submission alert to admin', error);
+    }
+  }
+
+  async sendNewRegistrationAdminAlert(
+    registration: EventRegistration,
+    event: Event,
+  ) {
+    if (!this.resend) return;
+
+    const adminEmails = await this.getAdminEmails();
+    if (!adminEmails.length) {
+      this.logger.warn(
+        'Registration alert skipped: no admin recipients configured',
+      );
+      return;
+    }
+
+    try {
+      await this.sendEmail({
+        to: adminEmails,
+        subject: `New Event Registration: ${event.title}`,
+        html: `
+          <div style="background:#f6f3f8;padding:32px 16px;font-family:Helvetica,Arial,sans-serif;color:#222">
+            <div style="max-width:600px;margin:auto;background:#fff;border-radius:14px;overflow:hidden">
+              <div style="background:#2b0548;padding:24px 30px;color:#fff">
+                <h1 style="margin:0;font-size:20px">New Event Registration</h1>
+              </div>
+              <div style="padding:30px">
+                <div style="margin:20px 0;padding:16px;background:#f8f6fa;border-radius:8px;line-height:1.7">
+                  <div><strong>Event:</strong> ${escapeHtml(event.title)}</div>
+                  <div><strong>Name:</strong> ${escapeHtml(registration.fullName)}</div>
+                  <div><strong>Email:</strong> ${escapeHtml(registration.email)}</div>
+                  <div><strong>Phone:</strong> ${escapeHtml(registration.phone || 'N/A')}</div>
+                  <div><strong>Payment:</strong> ${escapeHtml(String(registration.paymentStatus))}</div>
+                </div>
+                <p>Open Admin Console &gt; Events to view enrolled users.</p>
+              </div>
+            </div>
+          </div>
+        `,
+      });
+    } catch (error) {
+      this.logger.error('Failed to send registration alert to admin', error);
     }
   }
 

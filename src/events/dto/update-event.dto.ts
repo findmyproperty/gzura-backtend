@@ -7,10 +7,15 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   Min,
 } from 'class-validator';
 import { EventFormat } from '../../common/enums/event-format.enum';
 import { EventStatus } from '../../common/enums/event-status.enum';
+import {
+  MAX_EVENT_ATTENDEES,
+  MAX_EVENT_PRICE,
+} from './create-event.dto';
 
 export class UpdateEventDto {
   @IsOptional()
@@ -85,16 +90,19 @@ export class UpdateEventDto {
   @IsOptional()
   @IsNumber()
   @Min(0)
+  @Max(MAX_EVENT_PRICE)
   price?: number;
 
   @IsOptional()
   @IsNumber()
   @Min(0)
+  @Max(MAX_EVENT_PRICE)
   memberPrice?: number;
 
   @IsOptional()
   @IsNumber()
   @Min(1)
+  @Max(MAX_EVENT_ATTENDEES)
   maxAttendees?: number;
 
   @IsOptional()
